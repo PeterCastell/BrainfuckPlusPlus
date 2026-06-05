@@ -20,7 +20,7 @@ public static class ZigTemplater
         {
             Console.WriteLine("Unpacking zig...");
             Directory.CreateDirectory(localZigPath);
-            using var zip = new ZipArchive(assembly.GetManifestResourceStream("BrainfuckPlusPlus.template.zig-x86_64-windows-0.15.2.zip")!);
+            using var zip = new ZipArchive(assembly.GetManifestResourceStream("BrainfuckPlusPlus.template.zig-x86_64-windows-0.17.0-dev.702+18b3c78a9.zip")!);
 
             zip.ExtractToDirectory(localZigPath);
 
@@ -218,7 +218,7 @@ public static class ZigTemplater
 
         if (settings.buildAfterTemplate)
         {
-            var zigExecutable = Path.Join(Path.GetDirectoryName(assembly.Location)!, "zig/zig-x86_64-windows-0.15.2/zig.exe");
+            var zigExecutable = Path.Join(Path.GetDirectoryName(assembly.Location)!, "zig/zig-x86_64-windows-0.17.0-dev.702+18b3c78a9/zig.exe");
 
             var optimizeFlag = settings.releaseMode switch
             {

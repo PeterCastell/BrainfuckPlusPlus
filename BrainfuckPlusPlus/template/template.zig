@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const ffi = @import("ffi");
 
-const Instant = std.time.Instant;
+const Timestamp = std.Io.Timestamp;
 
 const Cell = u8; //cell_type
 
@@ -15,7 +15,7 @@ var tapeMemory: [*]Cell = undefined;
 
 var tapeCursor: usize = 0;
 
-var lastTime: Instant = undefined;
+var lastTime: Timestamp = undefined;
 
 var libMap: std.StringHashMap(std.DynLib) = undefined;
 
@@ -30,11 +30,11 @@ fn initMemory() !void {
             const MEM_RESERVE = 0x00002000;
             const PAGE_READWRITE = 0x04;
 
-            var basePtrRaw: ?*anyopaque = null;
+            var basePtrRaw: **anyopaque = undefined;
             var tapeLengthRaw: usize = TapeAllocSize;
             const status = windows.ntdll.NtAllocateVirtualMemory(
                 windows.GetCurrentProcess(),
-                @as(**anyopaque, @ptrCast(&basePtrRaw)),
+                &basePtrRaw,
                 0,
                 &tapeLengthRaw,
                 MEM_COMMIT | MEM_RESERVE,
@@ -45,20 +45,20 @@ fn initMemory() !void {
             }
             basePtr = @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(basePtrRaw)));
         },
-        else => basePtr = try std.posix.mmap(
+        else => basePtr = (try std.posix.mmap(
             null,
             TapeAllocSize,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
+            .{ .READ = true, .WRITE = true },
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
-        ),
+        )).ptr,
     }
     tapeMemory = @ptrCast(basePtr[0..]);
 }
 
 fn waitMs(delay: u64) void {
-    const now = Instant.now() catch unreachable;
+    const now = Timestamp.now() catch unreachable;
     const delayNs = delay * std.time.ns_per_ms;
     const elapsed = now.since(lastTime);
     if (delayNs > elapsed)
@@ -220,53 +220,39 @@ fn debugQuit(lineNum: i32, columnNum: i32, file: []const u8) void {
     @panic("debug quit");
 }
 
-// reads into buffer until end or zero byte is reached
-fn scanTape(comptime T: type) fn (start: usize, buf: []T) usize {
-    return struct {
-        fn inner(start: usize, buf: []T) usize {
-            var len: usize = 0;
-            for (0..buf.len) |i| {
-                const cell = tapeAt((start + i) % TapeLength).*;
-                if (cell == 0)
-                    return len;
-                buf[len] = @truncate(cell);
-                len += 1;
-            }
+/// Reads into buffer until end or zero byte is reached.
+fn scanTape(comptime T: type, start: usize, buf: []T) []T {
+    var len: usize = 0;
+    for (0..buf.len) |i| {
+        const cell = tapeAt((start + i) % TapeLength).*;
+        if (cell == 0)
             return len;
-        }
-    }.inner;
+        buf[len] = @truncate(cell);
+        len += 1;
+    }
+    return buf[0..len];
 }
 
-// reads into buffer until end is reached
-fn readTape(comptime T: type) fn (start: usize, buf: []T) void {
-    return struct {
-        fn inner(start: usize, buf: []T) void {
-            for (0..buf.len) |i| {
-                const cell = tapeAt((start + i) % TapeLength).*;
-                buf[i] = @truncate(cell);
-            }
-        }
-    }.inner;
+/// Reads into buffer until end is reached
+fn readTape(comptime T: type, start: usize, buf: []T) void {
+    for (0..buf.len) |i| {
+        const cell = tapeAt((start + i) % TapeLength).*;
+        buf[i] = @truncate(cell);
+    }
 }
-// adds the buffer onto the tape
-fn writeTape(comptime T: type) fn (start: usize, buf: []const T) void {
-    return struct {
-        fn inner(start: usize, buf: []const T) void {
-            for (0..buf.len) |i| {
-                tapeAt((start + i) % TapeLength).* +%= @truncate(buf[i]);
-            }
-        }
-    }.inner;
+
+/// Adds the buffer onto the tape
+fn writeTape(comptime T: type, start: usize, buf: []const T) void {
+    for (0..buf.len) |i| {
+        tapeAt((start + i) % TapeLength).* +%= @truncate(buf[i]);
+    }
 }
-// subtracts the buffer onto the tape
-fn writeTapeSub(comptime T: type) fn (start: usize, buf: []const T) void {
-    return struct {
-        fn inner(start: usize, buf: []const T) void {
-            for (0..buf.len) |i| {
-                tapeAt((start + i) % TapeLength).* -%= @truncate(buf[i]);
-            }
-        }
-    }.inner;
+
+/// Subtracts the buffer onto the tape
+fn writeTapeSub(comptime T: type, start: usize, buf: []const T) void {
+    for (0..buf.len) |i| {
+        tapeAt((start + i) % TapeLength).* -%= @truncate(buf[i]);
+    }
 }
 
 fn getFFIType(size: u32) !*ffi.Type {
@@ -315,15 +301,15 @@ fn createExternCaller(line: u32, col: u32, file: []const u8) !void {
 
     const MaxScanSize = ExternCaller.MaxParamCount;
 
-    var typeSizes = [_]u8{0} ** MaxScanSize;
-    const typeSizesLen = scanTape(u8)(tapeCursor, typeSizes[0..]);
+    var typeSizesBuf: [MaxScanSize]u8 = @splat(0);
+    const typeSizes = scanTape(u8, tapeCursor, &typeSizesBuf);
 
     var func = &ExternFuncs[ExternFuncsCount];
 
-    if (typeSizesLen == 0)
+    if (typeSizes.len == 0)
         return error.ReturnTypeMissing;
 
-    const numParams = typeSizesLen - 1;
+    const numParams = typeSizes.len - 1;
     func.numParams = numParams;
 
     for (0..numParams) |i| {
@@ -350,28 +336,29 @@ fn createExternCaller(line: u32, col: u32, file: []const u8) !void {
 fn findExternFunction(line: u32, col: u32, file: []const u8) !void {
     const MaxScanSize = 256;
 
-    var dllName = [_]u8{0} ** (MaxScanSize + 1);
-    var funcName = [_]u8{0} ** (MaxScanSize + 1);
+    var dllNameBuf: [MaxScanSize + 1:0]u8 = @splat(0);
+    var funcNameBuf: [MaxScanSize + 1:0]u8 = @splat(0);
 
-    const dllNameLen = scanTape(u8)(tapeCursor, dllName[0..MaxScanSize]);
-    const funcNameLen = scanTape(u8)(tapeCursor + 1 + dllNameLen, funcName[0..MaxScanSize]);
+    const dllNameSpan = scanTape(u8, tapeCursor, dllNameBuf[0..MaxScanSize]);
+    const funcNameSpan = scanTape(u8, tapeCursor + 1 + dllNameSpan.len, funcNameBuf[0..MaxScanSize]);
 
-    const dllNameSpan = dllName[0..dllNameLen];
+    const dllName = dllNameBuf[0 .. dllNameSpan.len + 1];
+    const funcName = funcNameBuf[0 .. funcNameSpan.len + 1];
 
-    if (!libMap.contains(dllNameSpan))
-        try libMap.put(dllNameSpan, std.DynLib.open(dllNameSpan) catch |err| {
-            std.debug.print("{s} ({d}, {d}): couldn't open library \"{s}\"\n", .{ file, line, col, dllNameSpan });
+    if (!libMap.contains(dllName))
+        try libMap.put(dllName, std.DynLib.open(dllName) catch |err| {
+            std.debug.print("{s} ({d}, {d}): couldn't open library \"{s}\"\n", .{ file, line, col, dllName });
             return err;
         });
 
-    var lib = libMap.getPtr(dllNameSpan) orelse return error.LibNotFound;
+    var lib = libMap.getPtr(dllName) orelse return error.LibNotFound;
 
-    const func = lib.lookup(*const fn () callconv(.c) void, funcName[0..funcNameLen :0]) orelse {
-        std.debug.print("{s} ({d}, {d}): couldn't find function \"{s}\"\n", .{ file, line, col, funcName[0..funcNameLen] });
+    const func = lib.lookup(*const fn () callconv(.c) void, funcName) orelse {
+        std.debug.print("{s} ({d}, {d}): couldn't find function \"{s}\"\n", .{ file, line, col, funcName });
         return error.FunctionNotFound;
     };
 
-    writeTape(u8)(tapeCursor + 2 + dllNameLen + funcNameLen, @as(*const [8]u8, @ptrCast(&func)));
+    writeTape(u8, tapeCursor + 2 + dllName.len + funcName.len, @as(*const [8]u8, @ptrCast(&func)));
 }
 
 fn callExternFunction() !void {
@@ -398,14 +385,16 @@ fn run() !void {
     // #
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+pub fn main(init: std.process.Init) !void {
+    var alloc = if (builtin.mode == .Debug) std.heap.DebugAllocator(.{}).init;
+    defer _ = if (builtin.mode == .Debug) alloc.deinit();
 
-    libMap = std.StringHashMap(std.DynLib).init(gpa.allocator());
+    const gpa = if (builtin.mode == .Debug) alloc.allocator() else std.heap.smp_allocator;
+
+    libMap = std.StringHashMap(std.DynLib).init(gpa);
     defer libMap.deinit();
 
-    lastTime = Instant.now() catch unreachable;
+    lastTime = Timestamp.now(init.io, .real);
 
     try initMemory();
     try run();

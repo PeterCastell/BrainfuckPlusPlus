@@ -3,10 +3,6 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const mod = b.addModule("brainfuck", .{
-        .root_source_file = b.path("template.zig"),
-        .target = target,
-    });
 
     const exe = b.addExecutable(.{
         .name = "brainfuck",
@@ -14,9 +10,6 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("template.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{
-                .{ .name = "brainfuck", .module = mod },
-            },
         }),
     });
 

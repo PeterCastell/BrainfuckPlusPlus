@@ -3,5 +3,3 @@ project/build-bf
 project/build-zig
 BrainfuckPlusPlus/bin
 BrainfuckPlusPlus/obj
-BrainfuckPlusPlus/template/.zig-cache
-BrainfuckPlusPlus/template/zig-out
