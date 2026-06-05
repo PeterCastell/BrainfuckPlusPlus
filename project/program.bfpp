@@ -1,0 +1,68 @@
+
+$import("utils.bfpp")
+$import("functions.bfpp")
+$import("resources.bfpp")
+$import("window.bfpp")
+$import("render.bfpp")
+$import("game.bfpp")
+
+&setup_func_caller
+(
+    @0
+    >128
+    # reference @128..184+ as arguments
+    {8
+        *
+        $move_8
+            (<128 >17)
+            (<17 >128)
+        
+        >8
+    }
+    # reference @192 as return
+    *
+    $move_8
+        (<192 >9)
+        (<9   >192)
+    
+    <192
+    @0
+)
+
+# core setup
+<2048 $create_trig_table >2048
+
+$setup_functions
+$setup_func_caller
+$create_window
+$setup_loaded_functions
+$setup_resources
+
+# set clear color
+>128 #$set_float_1
+>8   #$set_float_1
+>8   #$set_float_1
+>8   $set_float_1
+<24 <128 @0
+$glClearColor
+>128 $clear({32$0}) <128
+
+>256
++
+# main loop
+[
+    !50
+    <256
+
+    $window_loop_first
+
+    $process_game
+
+    $render_game
+
+    $window_loop_last (>256 - <256)
+    
+    >256
+    @256
+    # - #test
+]

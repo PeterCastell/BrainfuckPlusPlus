@@ -1,0 +1,81 @@
+
+# this is a comment.
+# there are no multiline comments ;_;
+
+# brainfuck operations still work fine
+
++ - < > . , []
+
+# they can be repeated with a number
+
++12 <32
+
+# for loops repeat contained code n times. like regular operations, the number is optional and defaults to 1
+{2
+    > [-]
+}
+
+# @ character represents debug features
+
+# assert that the cursor is index zero or panic. a panic message can also be attached
+@0
+@10"why aren't we at 10?"
+
+# print the cursor position and the value of the current cell
+@.
+
+# this one always prints the debug message
+@"hello world"
+
+# macros can be defined with & and invoked with $
+
+&hello_world (
+    +64
+    .
+)
+
+$hello_world
+
+# macros can also take arguments; defining with a set of parentesis bodies and invoking with numbered macros
+
+&do_a_and_b (
+    $0
+    .
+    $1
+    .
+)
+
+$do_a_and_b (+) (-)
+
+# there are certain builtin macros which simply expect a string.
+# builtins and debug operators are the only places strings are syntactially valid
+
+$import("other_file.bfpp")
+
+# macro parameters are macros, and therefore can take arguments themselves
+
+&do_thing_n_times (
+    $0(...)
+)
+
+&do_thing_5_times (
+    $do_thing_n_times({5 $0})
+)
+
+$do_thing_5_times
+
+# macro invokations of both kinds can be declared with any number of dollar signs
+# in order to reach out of it's scope to other scopes up the call tree
+
+&do_thing_method_1 (
+    {5 $0}
+)
+
+&do_thing_method_2 (
+    ++ $0 --
+)
+
+&do_thing_all_methods (
+    $do_thing_method_1($$0)
+    $do_thing_method_2($$0)
+)

@@ -1,0 +1,336 @@
+$import("utils.bfpp")
+$import("functions.bfpp")
+
+&&rep_resource_store({64{8$0}})
+
+# 0 = file name
+# leaves a string in @200, string length in @112, and a ptr to @200 in @120
+&read_file (
+    @0
+    ## prepare args for CreateFileA
+
+    # reference @200 as first arg
+    >200 * <200
+    $move_8_ft ({200$0}) ({128$0})
+    
+    >200 $0 <200    # file name
+    >136 >3 +128 <3 # access = GENERIC_READ
+    >8      +1      # share mode = FILE_SHARE_READ
+    >8              # security = NULL
+    >8      +3      # creation = OPEN_EXISTING
+    >8      +128    # attribs = FILE_ATTRIBUTE_NORMAL
+    >8              # template = NULL
+    <176
+    $k32CreateFileA
+
+    #clear args
+    >136
+    $clear({48$0})
+    <136
+    >200
+    $clear_nt
+    <200
+    
+
+    ## prepare args for ReadFile
+    
+    # move ref to @200 to second arg
+    >128
+    $move_8 (>8) (<8)
+    <128
+
+    # move handle to @128
+    $move_8_ft
+        ({192$0})
+        ({128$0})
+
+    >144 $set_4_max <144 # max bytes to read
+
+    # reference @120 as fourth arg
+    >120 *
+    $move_8 (>32) (<32)
+    <120
+
+    $k32ReadFile
+    # test result
+    >192
+    -[
+        @"Failed to read file"
+        >8 $0 $println_nt
+        @!
+    ]
+    <192
+
+    $k32CloseHandle
+
+    # test result
+    >192
+    -[
+        @"Failed to close file"
+        >8 $0 $println_nt
+        @!
+    ]
+    <192
+
+    # clear args
+    $move_8_ft ({120$0}) ({112$0})
+    >128 $clear({8$0}) <128
+    >144 $clear({48$0}) <144
+
+    # store ptr to string @120
+    $move_8_ft ({136$0}) ({120$0})
+
+    @0
+)
+
+
+
+# leaves shader handle at @104
+&create_vert_shader (
+    $create_shader (+49 > +139 <) ({104$0})
+)
+
+# leaves shader handle at @112
+&create_frag_shader (
+    $create_shader (+48 > +139 <) ({112$0})
+)
+
+# 0 = shader type, 1 = rep shader storage
+# leaves shader handle at $1
+&create_shader (
+    @0
+
+    >128 $0 <128
+    $glCreateShader
+
+    >128 $clear_8 <128
+
+    # move shader id to arg 1
+    $move_8_ft ({192$0}) ({128$0})
+
+    # write 1 in arg 2
+    >136 + <136
+
+    # reference @112 for arg 3 (string**)
+    >112 $clear_8 * <112
+    $move_8_ft ({112$0}) ({144$0})
+    $move_8_ft ({120$0}) ({112$0})
+
+    $glShaderSource
+
+    $glCompileShader
+
+    # clean up args
+    >112 $clear_8 <112
+    >136 $clear({16$0}) <136
+    >200 $clear_nt <200
+
+    # point status output to @120
+    >120 * <120
+    $move_8_ft ({120$0}) ({144$0})
+
+    >136 +129 > +139 < <136 # glCompileStatus
+    $glGetShader
+
+    >136 $clear({16$0}) <136
+
+    # check if shader failed to compile
+    >120
+    -[
+        +
+        <120
+        >136 +255 > +255 > +255 <2 <136
+        >200 * <200
+        $move_8_ft ({200$0}) ({152$0})
+        $glGetShaderInfoLog
+        @"error compiling shader:"
+        >200 $print_nt
+
+        @!
+    ]
+    <120
+    $move_8_ft ({128$0}) ($$1($$0))
+)
+
+
+
+# requires func caller, vert shader handle in @104, frag shader handle in @112
+# 0 = rep resource storage index
+&create_shader_program (
+    @0
+
+    $glCreateProgram
+    $move_8_ft ({192$0}) ({128$0})
+
+    $move_8_ft ({104$0}) ({136$0})
+    $glAttachShader
+    $move_8_ft ({136$0}) ({104$0})
+
+    $move_8_ft ({112$0}) ({136$0})
+    $glAttachShader
+    $move_8_ft ({136$0}) ({112$0})
+
+    $glLinkProgram
+    $move_8_ft ({128$0}) ({136$0})
+
+    $move_8_ft ({104$0}) ({128$0})
+    $glDeleteShader
+    >128 $clear_8 <128
+
+    $move_8_ft ({112$0}) ({128$0})
+    $glDeleteShader
+    >128 $clear_8 <128
+
+    $store_resource ($$0($$0)) ({136$0})
+)
+
+# 0 = rep resource index, 1 = rep dest
+&&load_resource (
+    @0
+    $rep_resource_store(<)
+    $0(<4)
+    $move_4
+        ($$0(>4) $rep_resource_store(>) $$1(>))
+        ($$0(<4) $rep_resource_store(<) $$1(<))
+    $0(>4)
+    $rep_resource_store(>)
+    @0
+)
+
+# 0 = rep resource index, 1 = rep src
+&&store_resource (
+    @0
+    $1(>)
+    $move_4
+        ($$1(<) $rep_resource_store(<) $$0(<4))
+        ($$1(>) $rep_resource_store(>) $$0(>4))
+    $1(<)
+    @0
+)
+
+# 0 = rep resource index
+&&use_shader_program (
+    $load_resource ($$0($$0)) ({128$0})
+
+    $glUseProgram
+
+    $store_resource ($$0($$0)) ({128$0})
+)
+
+# 0 = rep resource index
+&&bind_vao (
+    $load_resource ($$0($$0)) ({128$0})
+    
+    $glBindVertexArray
+
+    $store_resource ($$0($$0)) ({128$0})
+)
+
+# requires value in @136
+# 0 = uniform res index
+&&set_uniform_1 (
+    $load_resource ($$0($$0)) ({128$0})
+    $glUniform1i
+    $store_resource ($$0($$0)) ({128$0})
+)
+# requires values in @136 and @144
+# 0 = uniform res index
+&&set_uniform_2 (
+    $load_resource ($$0($$0)) ({128$0})
+    $glUniform2i
+    $store_resource ($$0($$0)) ({128$0})
+)
+
+# 0 = rep shader res index, 1 = uniform callers
+&&get_uniform_locations (
+    $load_resource ($$0($$0)) ({128$0})
+    $ref_of_at ({200$0}) ({136$0})
+
+    # 0 = rep uniform res index, 1 = uniform name
+    $1(
+        >200 $1 <200
+        
+        $glGetUniformLocation
+        $store_resource($$0($$0)) ({192$0})
+        >200 $clear_nt <200
+        $glGetError
+    )
+
+    >136 $clear_8 <136
+    $store_resource ($$0($$0)) ({128$0})
+)
+
+
+&&setup_resources (
+    @0
+
+    #create empty VAO
+    >128 + <128
+    >144 * $move_8 (<8) (>8) <144
+    $glCreateVertexArrays
+    >128 $clear_16 <128
+    $store_resource ({0$0}) ({144$0})
+
+    $read_file (+"shaders/player.vert.glsl")
+    $create_vert_shader
+
+    $read_file (+"shaders/player.frag.glsl")
+    $create_frag_shader
+
+    $create_shader_program ({1$0})
+
+    $get_uniform_locations ({1$0}) (
+        $0 ({2$0}) (+"uScreenSize")
+        $0 ({3$0}) (+"uPosition")
+        $0 ({4$0}) (+"uSize")
+        $0 ({5$0}) (+"uRotation")
+    )
+
+    $read_file (+"shaders/enemy.vert.glsl")
+    $create_vert_shader
+
+    $read_file (+"shaders/enemy.frag.glsl")
+    $create_frag_shader
+
+    $create_shader_program ({6$0})
+
+    $get_uniform_locations ({6$0}) (
+        $0 ({7$0}) (+"uScreenSize")
+        $0 ({8$0}) (+"uPosition")
+        $0 ({9$0}) (+"uSize")
+        $0 ({10$0}) (+"uRotation")
+    )
+
+    $read_file (+"shaders/border.vert.glsl")
+    $create_vert_shader
+
+    $read_file (+"shaders/border.frag.glsl")
+    $create_frag_shader
+
+    $create_shader_program ({11$0})
+
+    $get_uniform_locations ({11$0}) (
+        $0 ({12$0}) (+"uScreenSize")
+    )
+)
+
+&&export_player_resources (
+    &&player_shader ({1$0})
+    &&uScreenSize ({2$0})
+    &&uPosition   ({3$0})
+    &&uSize       ({4$0})
+    &&uRotation   ({5$0})
+)
+
+&&export_enemy_resources (
+    &&enemy_shader ({6$0})
+    &&uScreenSize ({7$0})
+    &&uPosition   ({8$0})
+    &&uSize       ({9$0})
+    &&uRotation   ({10$0})
+)
+
+&&export_border_resources (
+    &&border_shader ({11$0})
+    &&uScreenSize ({12$0})
+)
