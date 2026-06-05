@@ -2,8 +2,9 @@ const builtin = @import("builtin");
 const std = @import("std");
 const ffi = @import("ffi");
 
-const Instant = std.time.Instant;
-const Mutex = std.Thread.Mutex;
+const Io = std.Io;
+const Mutex = std.Io.Mutex;
+const Timestamp = std.Io.Timestamp;
 
 fn cellSizeOf(T: type) u32 {
     return @max(1, @sizeOf(T) / @sizeOf(cell));
@@ -115,9 +116,9 @@ const TapeLength = TapeAllocSize / @sizeOf(cell);
 
 var tapeMemory: [*]cell = undefined;
 
-var externFuncMap = IdMap(ExternFunc, null).init(std.heap.smp_allocator);
-var threadMap = IdMap(ManagedThread, ManagedThread.detach).init(std.heap.smp_allocator);
-var MutexMap = IdMap(Mutex, null).init(std.heap.smp_allocator);
+var externFuncMap = IdMap(ExternFunc, null).init(gpa);
+var threadMap = IdMap(ManagedThread, ManagedThread.detach).init(gpa);
+var MutexMap = IdMap(Mutex, null).init(gpa);
 
 fn initMemory() !void {
     var basePtr: [*]align(std.heap.page_size_min) u8 = undefined;
@@ -130,11 +131,11 @@ fn initMemory() !void {
             const MEM_RESERVE = 0x00002000;
             const PAGE_READWRITE = 0x04;
 
-            var basePtrRaw: ?*anyopaque = null;
+            var basePtrRaw: **anyopaque = undefined;
             var tapeLengthRaw: usize = TapeAllocSize;
             const status = windows.ntdll.NtAllocateVirtualMemory(
                 windows.GetCurrentProcess(),
-                @as(**anyopaque, @ptrCast(&basePtrRaw)),
+                &basePtrRaw,
                 0,
                 &tapeLengthRaw,
                 MEM_COMMIT | MEM_RESERVE,
@@ -145,14 +146,14 @@ fn initMemory() !void {
             }
             basePtr = @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(basePtrRaw)));
         },
-        else => basePtr = try std.posix.mmap(
+        else => basePtr = (try std.posix.mmap(
             null,
             TapeAllocSize,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
+            .{ .READ = true, .WRITE = true },
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
-        ),
+        )).ptr,
     }
     tapeMemory = @ptrCast(basePtr[0..]);
 }
@@ -199,8 +200,8 @@ fn enableRawMode(enabled: bool) void {
                 var raw = S.original;
                 raw.lflag.ICANON = false;
                 raw.lflag.ECHO = false;
-                raw.cc[@intFromEnum(posix.V.MIN)] = 1;
-                raw.cc[@intFromEnum(posix.V.TIME)] = 0;
+                raw.cc[std.meta.Tag(posix.V.MIN)] = 1;
+                raw.cc[std.meta.Tag(posix.V.TIME)] = 0;
                 posix.tcsetattr(fd, .FLUSH, raw) catch return;
             } else if (!enabled and S.saved) {
                 posix.tcsetattr(fd, .FLUSH, S.original) catch return;
@@ -212,16 +213,16 @@ fn enableRawMode(enabled: bool) void {
 
 const Context = struct {
     tapeCursor: usize = 0,
-    lastTime: Instant,
+    lastTime: Timestamp,
 
     pub fn init() !Context {
-        return .{ .lastTime = try Instant.now() };
+        return .{ .lastTime = Timestamp.now(io, .real) };
     }
 
     // === basic ops
 
     pub fn resetLastTime(self: *Context) void {
-        self.lastTime = Instant.now() catch unreachable;
+        self.lastTime = Timestamp.now(io, .real);
     }
 
     pub fn tape(self: *Context) *cell {
@@ -251,24 +252,24 @@ const Context = struct {
         self.tape().* -%= amount;
     }
     fn increaseString(self: *Context, string: []const u8) void {
-        writeTapeAdd(u8)(self.tapeCursor, string);
+        writeTapeAdd(u8, self.tapeCursor, string);
     }
     fn decreaseString(self: *Context, string: []const u8) void {
-        writeTapeSub(u8)(self.tapeCursor, string);
+        writeTapeSub(u8, self.tapeCursor, string);
     }
 
     pub fn takeReference(self: *Context) void {
         const ptr: *const anyopaque = @ptrCast(&tapeMemory[self.tapeCursor]);
-        writeTapeValue(*const anyopaque)(self.tapeCursor, ptr);
+        writeTapeValue(*const anyopaque, self.tapeCursor, ptr);
     }
 
     pub fn dereference(self: *Context) void {
-        const ptr = readTapeValue(*const u8)(self.tapeCursor);
-        writeTapeValue(u8)(self.tapeCursor + ptrCellSize, ptr.*);
+        const ptr = readTapeValue(*const u8, self.tapeCursor);
+        writeTapeValue(u8, self.tapeCursor + ptrCellSize, ptr.*);
     }
 
     pub fn writeReference(self: *Context, embed: *const anyopaque) void {
-        writeTapeValue(*const anyopaque)(self.tapeCursor, embed);
+        writeTapeValue(*const anyopaque, self.tapeCursor, embed);
     }
 
     pub fn read(self: *Context) !void {
@@ -295,7 +296,7 @@ const Context = struct {
     }
 
     pub fn waitMs(self: *Context, delay: u64) void {
-        const now = Instant.now() catch unreachable;
+        const now = Timestamp.now() catch unreachable;
         const delayNs = delay * std.time.ns_per_ms;
         const elapsed = now.since(self.lastTime);
         if (delayNs > elapsed)
@@ -421,7 +422,28 @@ const Context = struct {
     }
 
     fn getFFIType(size: u32) !*ffi.Type {
-        const types = [_]*ffi.Type{ ffi.types.void, ffi.types.uint8, ffi.types.sint8, ffi.types.uint16, ffi.types.sint16, ffi.types.uint32, ffi.types.sint32, ffi.types.uint64, ffi.types.sint64, ffi.types.float, ffi.types.double, ffi.types.pointer, ffi.types.uint, ffi.types.sint, ffi.types.ulong, ffi.types.long, ffi.types.long_double, getIntFFIType(isize), getIntFFIType(usize), getIntFFIType(cell) };
+        const types = [_]*ffi.Type{
+            ffi.types.void,
+            ffi.types.uint8,
+            ffi.types.sint8,
+            ffi.types.uint16,
+            ffi.types.sint16,
+            ffi.types.uint32,
+            ffi.types.sint32,
+            ffi.types.uint64,
+            ffi.types.sint64,
+            ffi.types.float,
+            ffi.types.double,
+            ffi.types.pointer,
+            ffi.types.uint,
+            ffi.types.sint,
+            ffi.types.ulong,
+            ffi.types.long,
+            ffi.types.long_double,
+            getIntFFIType(isize),
+            getIntFFIType(usize),
+            getIntFFIType(cell),
+        };
         if (size > types.len)
             return error.NotAValidType;
         return types[size - 1];
@@ -430,13 +452,13 @@ const Context = struct {
     fn createExternCaller(self: *Context, line: u32, col: u32, file: []const u8) !void {
         var func = try externFuncMap.ensure(self.tape().*);
 
-        var typeSizes = [_]u8{0} ** ExternFunc.MaxParamCount;
-        const typeSizesLen = scanTape(u8)(self.tapeCursor + 1, typeSizes[0..]);
+        var typeSizesBuf: [ExternFunc.MaxParamCount]u8 = @splat(0);
+        const typeSizes = scanTape(u8, self.tapeCursor + 1, &typeSizesBuf);
 
-        if (typeSizesLen == 0)
+        if (typeSizes.len == 0)
             return error.ReturnTypeMissing;
 
-        const numParams = typeSizesLen - 1;
+        const numParams = typeSizes.len - 1;
         func.numParams = numParams;
 
         for (0..numParams) |i| {
@@ -461,6 +483,7 @@ const Context = struct {
                 std.debug.print("{s} ({d}, {d}): failed to create exten function caller\n", .{ file, line, col });
             if (IgnoreErrorCreateExternCaller)
                 return;
+
             return err;
         };
     }
@@ -468,15 +491,16 @@ const Context = struct {
     fn findExternFunction(self: *Context, line: u32, col: u32, file: []const u8) !void {
         const MaxScanSize = 256;
 
-        var dllName = [_]u8{0} ** (MaxScanSize + 1);
-        var funcName = [_]u8{0} ** (MaxScanSize + 1);
+        var dllNameBuf: [MaxScanSize + 1:0]u8 = @splat(0);
+        var funcNameBuf: [MaxScanSize + 1:0]u8 = @splat(0);
 
-        const dllNameLen = scanTape(u8)(self.tapeCursor, dllName[0..MaxScanSize]);
-        const funcNameLen = scanTape(u8)(self.tapeCursor + dllNameLen + 1, funcName[0..MaxScanSize]);
+        const dllNameSpan = scanTape(u8, self.tapeCursor, dllNameBuf[0..MaxScanSize]);
+        const funcNameSpan = scanTape(u8, self.tapeCursor + 1 + dllNameSpan.len, funcNameBuf[0..MaxScanSize]);
 
-        const dllNameSpan = dllName[0..dllNameLen];
+        const dllName = dllNameBuf[0 .. dllNameSpan.len + 1];
+        const funcName = funcNameBuf[0 .. funcNameSpan.len + 1];
 
-        var lib = std.DynLib.open(dllNameSpan) catch |err| {
+        var lib = std.DynLib.open(dllName) catch |err| {
             if (comptime !includeAllDebug())
                 std.debug.print("{s} ({d}, {d}): couldn't open library \"{s}\"\n", .{ file, line, col, dllNameSpan });
             if (IgnoreErrorFindExternFunction)
@@ -484,22 +508,22 @@ const Context = struct {
             return err;
         };
 
-        const func = lib.lookup(*const anyfunc, funcName[0..funcNameLen :0]) orelse {
+        const func = lib.lookup(*const anyfunc, funcName) orelse {
             if (comptime !includeAllDebug())
-                std.debug.print("{s} ({d}, {d}): couldn't find function \"{s}\"\n", .{ file, line, col, funcName[0..funcNameLen] });
+                std.debug.print("{s} ({d}, {d}): couldn't find function \"{s}\"\n", .{ file, line, col, funcName });
             if (IgnoreErrorFindExternFunction)
                 return;
             return error.FunctionNotFound;
         };
 
-        writeTapeValue(*const anyfunc)(self.tapeCursor + dllNameLen + 1 + funcNameLen + 1, func);
+        writeTapeValue(*const anyfunc, self.tapeCursor + dllName.len + 1 + funcName.len + 1, func);
     }
 
     fn callExternFunction(self: *Context) !void {
         const func = externFuncMap.get(self.tape().*) orelse try self.invalidId();
 
-        const funcPtr = readTapeValue(*anyfunc)(self.tapeCursor + 1);
-        const result = readTapeValue(*anyopaque)(self.tapeCursor + 1 + ptrCellSize);
+        const funcPtr = readTapeValue(*anyfunc, self.tapeCursor + 1);
+        const result = readTapeValue(*anyopaque, self.tapeCursor + 1 + ptrCellSize);
         var args: [256]*anyopaque = undefined;
 
         readTapeBytes(self.tapeCursor + 1 + 2 * ptrCellSize, @as(*ByteSpan([64]*anyopaque), @ptrCast(&args)));
@@ -549,21 +573,17 @@ const Context = struct {
         return if (spos > TapeLength / 2) spos - TapeLength else spos;
     }
 
-    // reads into buffer until end or zero byte is reached
-    fn scanTape(comptime T: type) fn (start: usize, buf: []T) usize {
-        return struct {
-            fn inner(start: usize, buf: []T) usize {
-                var len: usize = 0;
-                for (0..buf.len) |i| {
-                    const cellVal = tapeAt((start + i) % TapeLength).*;
-                    if (cellVal == 0)
-                        return len;
-                    buf[len] = @truncate(cellVal);
-                    len += 1;
-                }
+    /// Reads into buffer until end or zero byte is reached.
+    fn scanTape(comptime T: type, start: usize, buf: []T) []T {
+        var len: usize = 0;
+        for (0..buf.len) |i| {
+            const cellVal = tapeAt((start + i) % TapeLength).*;
+            if (cellVal == 0)
                 return len;
-            }
-        }.inner;
+            buf[len] = @truncate(cellVal);
+            len += 1;
+        }
+        return buf[0..len];
     }
 
     fn readTapeBytes(start: usize, buf: []u8) void {
@@ -578,14 +598,10 @@ const Context = struct {
         }
     }
 
-    pub fn readTapeValue(comptime T: type) fn (start: usize) T {
-        return struct {
-            fn inner(start: usize) T {
-                var val: T = undefined;
-                readTapeBytes(start, @as(*ByteSpan(T), @ptrCast(&val)));
-                return val;
-            }
-        }.inner;
+    pub fn readTapeValue(comptime T: type, start: usize) T {
+        var val: T = undefined;
+        readTapeBytes(start, @as(*ByteSpan(T), @ptrCast(&val)));
+        return val;
     }
 
     fn writeTapeBytes(start: usize, buf: []const u8) void {
@@ -602,32 +618,20 @@ const Context = struct {
         }
     }
 
-    pub fn writeTapeValue(comptime T: type) fn (start: usize, val: T) void {
-        return struct {
-            fn inner(start: usize, val: T) void {
-                writeTapeBytes(start, @as(*const ByteSpan(T), @ptrCast(&val)));
-            }
-        }.inner;
+    pub fn writeTapeValue(comptime T: type, start: usize, val: T) void {
+        writeTapeBytes(start, @as(*const ByteSpan(T), @ptrCast(&val)));
     }
 
-    fn writeTapeAdd(comptime T: type) fn (start: usize, buf: []const T) void {
-        return struct {
-            fn inner(start: usize, buf: []const T) void {
-                for (0..buf.len) |i| {
-                    tapeAt((start + i) % TapeLength).* +%= @truncate(buf[i]);
-                }
-            }
-        }.inner;
+    fn writeTapeAdd(comptime T: type, start: usize, buf: []const T) void {
+        for (0..buf.len) |i| {
+            tapeAt((start + i) % TapeLength).* +%= @truncate(buf[i]);
+        }
     }
 
-    fn writeTapeSub(comptime T: type) fn (start: usize, buf: []const T) void {
-        return struct {
-            fn inner(start: usize, buf: []const T) void {
-                for (0..buf.len) |i| {
-                    tapeAt((start + i) % TapeLength).* -%= @truncate(buf[i]);
-                }
-            }
-        }.inner;
+    fn writeTapeSub(comptime T: type, start: usize, buf: []const T) void {
+        for (0..buf.len) |i| {
+            tapeAt((start + i) % TapeLength).* -%= @truncate(buf[i]);
+        }
     }
 };
 
@@ -639,17 +643,28 @@ fn functionFailed(err: anyerror) void {
     @panic("unhandled error");
 }
 
-fn discard(x: anytype) void {
+inline fn discard(x: anytype) void {
     _ = x;
 }
 
-var mainArgs: [][:0]u8 = undefined;
+var mainArgs: []const [:0]const u8 = undefined;
 
-pub fn main() !void {
-    if (comptime @sizeOf(cell) > @sizeOf(usize))
+var io: Io = undefined;
+
+comptime {
+    if (@sizeOf(cell) > @sizeOf(usize))
         @compileError("Cell size too large for target architecture");
-    mainArgs = try std.process.argsAlloc(std.heap.smp_allocator);
-    defer std.process.argsFree(std.heap.smp_allocator, mainArgs);
+}
+
+var alloc = if (builtin.mode == .Debug) std.heap.DebugAllocator(.{}).init;
+const gpa = if (builtin.mode == .Debug) alloc.allocator() else std.heap.smp_allocator;
+
+pub fn main(init: std.process.Init) !void {
+    defer _ = if (builtin.mode == .Debug) alloc.deinit();
+
+    io = init.io;
+
+    mainArgs = try init.minimal.args.toSlice(gpa);
 
     try initMemory();
     const code = try run();
@@ -667,4 +682,5 @@ const cell = // #t
 // #g
 fn run() !u8 {
     // #m
+    return 0;
 }

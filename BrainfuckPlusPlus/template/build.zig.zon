@@ -1,12 +1,13 @@
 .{
     .name = .brainfuck,
-    .version = "0.0.1",
     .fingerprint = 0x8616795e9b115e81,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .libffi = .{
-            .url = "https://codeberg.org/vezel/libffi/archive/v3.5.2-3.tar.gz",
-            .hash = "libffi-3.5.2-7_tEtCY7FwBjSWOed_hvKoIb_otUeege34q9FpLH_03N",
+            .url = "git+https://codeberg.org/vezel/libffi.git#e0d8dcc737458a7b1c16b12110b8debf4ca00570",
+            .hash = "libffi-3.5.2-7_tEtOs6FwA4jwNp9hTNKQqHMHqjSDOfTNM1ySSjaXw6",
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon" },
+    .paths = .{ "build.zig", "build.zig.zon", "template.zig" },
 }

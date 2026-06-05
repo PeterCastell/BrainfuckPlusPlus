@@ -14,7 +14,7 @@
     <EmbeddedResource Include="template\build.zig" />
     <EmbeddedResource Include="template\build.zig.zon" />
     <EmbeddedResource Include="template\template.zig" />
-    <EmbeddedResource Include="template\zig-x86_64-windows-0.15.2.zip" />
+    <EmbeddedResource Include="template\zig-x86_64-windows-0.17.0-dev.702+18b3c78a9.zip" />
     <EmbeddedResource Include="example\project.toml" />
     <EmbeddedResource Include="example\main.bfpp" />
     <EmbeddedResource Include="example\reference.md" />

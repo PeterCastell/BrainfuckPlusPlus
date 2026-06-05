@@ -20,7 +20,7 @@ public static class ZigTemplater
         public int cellSize { get; set; } = 1;
     }
 
-    static readonly string ZigVersion = "zig-x86_64-windows-0.15.2";
+    static readonly string ZigVersion = "zig-x86_64-windows-0.17.0-dev.702+18b3c78a9";
     static string GetTypeString(AST.Type type) => type switch
     {
         AST.Type.Void => "void",
@@ -296,7 +296,7 @@ public static class ZigTemplater
                             if (@return.Type is AST.Type.Void)
                                 Emit("return;");
                             else
-                                Emit($"return Context.readTapeValue({GetTypeString(@return.Type)})(ctx.tapeCursor);");
+                                Emit($"return Context.readTapeValue({GetTypeString(@return.Type)}, ctx.tapeCursor);");
                             break;
                         case AST.FindExternFunction:
                             Emit($@"try ctx.findExternFunction({ctx.Start.Row}, {ctx.Start.Column}, ""{ctx.File}"");");
@@ -381,6 +381,8 @@ public static class ZigTemplater
                         EmitContext(fileStream, ast.body, 1);
                         if (!ast.ReturnIncluded)
                             EmitLine(fileStream, 1,"return 0;");
+                        fileStream.Write(Encoding.UTF8.GetBytes($" //"));
+                        skipNext = true;
                         break;
 
                     case 'f':
