@@ -135,11 +135,11 @@ Groups of operators can be repeated several times by using for loops. They are d
 # Prints "!Bc"
 
 ```
-Like the numerable operators, omitting the number defaults one, executing the contents once. This can be useful for creating scopes (see [Macros](#macros)).
+Like the numerable operators, omitting the number defaults to one, executing the contents once. This can be useful for creating scopes (see [Macros](#macros)).
 
 ### Delays
 Some programs need to be able to wait for a duration or maintain a constant framerate.
-The delay operator enables this by waiting until a specified amount of time has passed since the last time a delay operator was executed. Delays are defined as an exclaimation mark `!` optionally followed by a number of milliseconds. Unlike numberable operators, omitting the number defaults to zero milliseconds, in other words this immediately resets the saved last time to now. When the program starts, it initializes the saved last time to now.
+The delay operator enables this by waiting until a specified amount of time has passed since the last time a delay operator was executed. Delays are defined as an exclaimation mark `!` optionally followed by a number of milliseconds. Unlike numberable operators, omitting the number defaults to zero milliseconds. In other words, this immediately resets the saved last time to now. When the program starts, it initializes the saved last time to now.
 ```bfpp
 ... # Code that takes time
 
@@ -157,8 +157,13 @@ The delay operator enables this by waiting until a specified amount of time has 
     ... # Code that takes time
 ]
 ```
+
+### Input Mode
+By default, input from the console isn't readable until enter is pressed, and any input the user gives is visibly written. In the case that this isn't desirable, the **Input Mode** operator is the solution. Defined by an exclaimation mark and a comma `!,`, it reads the current cell for the input mode. If the cell is zero, it switches to raw mode where the input is not echoed and is unbuffered. If the cell is non-zero, it switches to buffered mode (the default).
+
+
 ### Referencing
-When interacting with outside code it's important to be able to reference cells and dereference pointers. The reference operator is an asterisk `*` and it writes the address of the cursor to the next 8 cells. The dereference operator is a tilde `~` and it reads a pointer from the next 8 cells and writes the byte at that memory address to the 9th cell. Next 'n' cells refers to cells starting at the cursor location and moving right.
+When interacting with outside code it's important to be able to reference cells and dereference pointers. The reference operator is an asterisk `*` and it writes the address of the cursor to the next 8 cells. The dereference operator is a tilde `~` and it reads a pointer from the next 8 cells and writes the byte at that memory address to the 9th cell. "Next 'n' cells" refers to cells starting at the cursor location and moving right.
 ```bfpp
 * # writes to cells 0-7 with the address of cell 0
 
@@ -168,22 +173,19 @@ When interacting with outside code it's important to be able to reference cells 
   #  writes the value at that memory address to cell 24
 ```
 
-### Input Mode
-By default, input from the console isn't readable until enter is pressed, and any input the user gives is visibly written. In the case that this isn't desireable, the **Input Mode** operator is the solution. Defined by an exclaimation mark and a comma `!,`, it reads the current cell for the input mode. If the cell is zero, it switches to raw mode where the input is not echoed and unbuffered. If the cell is non-zero, it switches to buffered mode (the default).
-
 ### Simple Operators
 |OP |Description| Default *n*
 |:-:|---|---
 |{*n* }| Repeats its contents n times| 1
 |!*n*| Waits until n milliseconds since the last wait| 0
+|!,| Switches input mode
 |*| Writes the address of the cursor to the tape
 |~| Reads a byte at the address on the tape
-|!,| Switches input mode
 
 ## Macros
 Macros fix the problem of writing the same code over and over again.
-Macros are defined with the **Macro Define** operator: an amersand `&` followed by the **name** of the macro being defined, then a set of brackets `( )` which contain the code what will be pasted in at an **invocation site**. Macros can be **invoked** with the **Macro Invoke**: a dollar sign `$` followed by the **name** of the macro being invoked. There's also more to this operator that will be covered below.
- 
+Macros are defined with the **Macro Define** operator: an ampersand `&` followed by the **name** of the macro being defined, then a set of brackets `( )` which contain the code that will be pasted in at an **invocation site**. Macros can be **invoked** with the **Macro Invoke**: a dollar sign `$` followed by the **name** of the macro being invoked. There's also more to this operator that will be covered below.
+
 Unlike functions in other languages, macros aren't "called" in the way that the program jumps into and out of them during execution. Macros are **invoked** at compile time, copying the body of the definition and pasting at the **invocation site**. This is similar to inline functions.
 
 Macros exist as **names** within **scopes**. **Scopes** are regions of code bounded by a pair of brackets of any kind. Scopes have **inner scopes** (scopes within them) and **outer scopes** (scopes that enclose them).
@@ -236,7 +238,7 @@ $bar # COMPILE ERROR: Name "bar" cannot be found
 
 **Loose scopes** are a special subset of scopes which include while loops, for loops, and macro invocations.
 
-Macro definitions can be made **exporting** by using two ampersands `&&`. The **Name Export** defined as an ampersand and a dollar sign `&$` followed by a **name** operator is another way of **exporting**. It exports any already existing visible macro.
+Macro definitions can be made **exporting** by using two ampersands `&&`. The **Name Export** operator defined as an ampersand and a dollar sign `&$` followed by a **name** operator is another way of **exporting**. It exports any already existing visible macro.
 
 ```bfpp
 {5
@@ -285,7 +287,7 @@ Macro definitions can be made **exporting** by using two ampersands `&&`. The **
 ### Parameters / Arguments
 Because macros weren't ~~complicated~~ capable enough already, they also support parameters. Macro parameters are similar to macro definitions in that they define a group of operators that can be **invoked**. 
 
-Arguments are given by a **Macro Invoke** operator by adding several bodies after it, each a pair of brackets `( )` enclosing code. Within a the body of a **Macro Define**, arguments can be invoked like macros with numbers for names, starting from zero. Listing required parameters isn't part of the **Macro Define** operator, instead it's based on the highest-index parameter used in the body and extra arguments are allowed.
+Arguments are given by a **Macro Invoke** operator by adding several bodies after it, each a pair of brackets `( )` enclosing code. Within the body of a **Macro Define**, arguments can be invoked like macros with numbers for names, starting from zero. Listing required parameters isn't part of the **Macro Define** operator; instead it's based on the highest-index parameter used in the body and extra arguments are allowed.
 
 ```bfpp
 &do_things_elsewhere (
@@ -304,7 +306,7 @@ $do_things_elsewhere (...) (+++)
 Since macro args are in all ways macros themselves, they support parameters of their own. This is where things can get confusing.
 
 **A use case for args with args** \
-Since macro arguments need to consist of complete operators, numbers like "how many times to repeat an add" can't be passed simply. This is why I created a pattern I call "repeaters", which are arguments consisting of a for loop which run *their*
+Since macro arguments need to consist of complete operators, numbers like "how many times to repeat an addition" can't be passed simply. This is why I created a pattern I call "repeaters", which are arguments consisting of a for loop which run *their*
 first argument a specific number of times.
 ```bfpp
 # This macro expects the first arg to be a "repeater".
@@ -328,6 +330,23 @@ $clear_n_cells (
 # And this will clear the next 12
 $clear_n_cells ({12 $0 })
 ```
+Here is a rough python equivalent of the above example:
+```python
+# the macro definition
+def clear_n_cells(repeater):
+    repeater(lambda:
+        clear()
+        move_right()
+    )
+    repeater(lambda: move_left())
+
+# the macro invocation
+clear_n_cells(lambda a:
+    for(i in range(5)):
+        a()
+)
+```
+
 ### Backtracking
 Multiple macros with the same name cannot be created in the same scope, but names can be overridden in child scopes. Scope **backtracking** can be used to differentiate between these identical names. **Backtracking** is the process of starting the search for a name in an outerscope instead of the current one. This skips over locally defined macros with names that override macros in outer scopes. This isn't terribly useful with regular macros, but it's essential in differentiating parameters across multiple visible scopes, all with their own parameters.
 
@@ -386,7 +405,7 @@ When used carefully this can be used for advanced tasks like "forwarding" repeat
 # Clears four cells, writes 1 into four cells, then clears them right after.
 $foo ({4 $0 })
 ```
-Backtracking can also works for export operators and can be repeated to backtrack multiple levels instead of just one by adding more dollar signs. (`$$$$foo` can be valid)
+Backtracking can also work for export operators and can be repeated to backtrack multiple levels by adding more dollar signs. (`$$$$foo` can be valid)
 
 One oddity with how macros are implented is that macros defined directly are visible before their definitions, but macros exported through invocations are only visible only after the relevant function call.
 ```bfpp
@@ -448,11 +467,11 @@ File paths are interpreted as relative to the source file they are written in, o
 ## Debugging
 
 Several debug operators have been added for the sake of maintaining sanity.
-All debug operators print information about where they were written in the source code and start with an at sign `@`.
+All debug operators print information about where they were written (file, line, column) and start with an at-sign `@`.
 
 #### Debug Assert
 An at sign followed by a number (can be negative) `@n  @-n` \
-Asserts that the cursor position is at a specified position. Stops the program if the check fails.
+Asserts that the cursor is at a specified position. Stops the program if the check fails.
 ```bfpp
 @12 # Assert at cell twelve
 # Print looks like:
@@ -540,7 +559,7 @@ args=["-Doptimize=<mode>"]
 |@""| Print
 
 ## IDs
-Before the last few sections, it's important to specify what an **ID** is. **IDs** are numbers that represent a value at runtime, unlike **names** which represent something at compile time. **IDs** are like slots and over the course of a program's execution certain types of values can be written to and read from those slots. There are as many ID slots as can be represented by one cell. Re-writing to the same **ID** deletes the preview value and reading from an unwritten **ID** stops the program. Each type of storable value has it's own ID space, so the same **ID** can represent multiple different values of different types.
+Before the last few sections, it's important to specify what an **ID** is. **IDs** are numbers that represent a value at runtime, unlike **names** which represent something at compile time. **IDs** are like slots and over the course of a program's execution certain types of values can be written to and read from those slots. There are as many ID slots as can be represented by one cell. Re-writing to the same **ID** deletes the preview value and reading from an unwritten **ID** stops the program. Each type of storable value has its own ID space, so the same **ID** can represent multiple different values of different types.
 
 ## Extern Functions
 In order for bfpp programs to interoperate with the rest of the computer, it needs to be able to call functions in other binaries. This is what Extern Operators are for.\
@@ -548,7 +567,7 @@ To call an extern function, it takes three steps.
 Each operator reads a pattern of bytes from the tape to accomplish its job. All extern operators start with a percent sign `%`.
 
 #### Step 1: Find the function ptr
-The **Find Extern Func** operator is a percent sign and a asterisk `%*`.
+The **Find Extern Func** operator is a percent sign and an asterisk `%*`.
 It scans the tape for two null terminated strings then writes an 8 byte pointer after those strings.
 Memory layout relative to the cursor:
 ```
@@ -558,17 +577,15 @@ Memory layout relative to the cursor:
 ```
 
 ```bfpp
-+"glfw3"
-[>]>
-+"glfwCreateWindow"
-<<[<]> @0
++"glfw3\0glfwCreateWindow"
+
 %* # find the address of the function and write it to the tape
 [>]>[>]>
 @.8 # print the address
 ```
 
 #### Step 2: Create the caller
-The **Create Extern Caller** operator is a percent sign and a ampersand `%&`. Extern callers are stores with **IDs** (see above). This operator reads an **ID** from the tape and scans for a null-terminated sequence of type indexes. For reference on index to type mapping, see the [Table of Types](#table-of-types).
+The **Create Extern Caller** operator is a percent sign and a ampersand `%&`. Extern callers are stored by **ID** (see above). This operator reads an **ID** from the tape and scans for a null-terminated sequence of type indices. For reference on index to type mapping, see the [Table of Types](#table-of-types). The **ID** read is where the caller will be stored.
 Arguments are optional, but a return type is required. Type void is not permitted as an argument type.
 Memory layout relative to the cursor:
 ```
@@ -592,7 +609,7 @@ Memory layout relative to the cursor:
 |0        |1 |...|8 |9 |...|18 |19 |...|n |
 |Caller ID|Func Addr|Ret Addr  |Arg Addrs |
 ```
-`*` is usefull for getting addresses of cells on the tape to use as the return address and arg addresses. Be warned, the return and arg addresses need to be aligned for the types they are. \
+`*` is useful for getting addresses of cells on the tape to use as the return address and arg addresses. Be warned, the return and arg addresses need to be aligned for the types they are. \
 Example without args because it's shorter to show (with `glfwInit`)
 ```bfpp
 &move_8_from_to(...) # moves 8 cells from one offset to another
@@ -619,10 +636,10 @@ $caller_id # write caller id to cell 0
 ## Functions
 While calling external functions is very useful on its own, sometimes custom functions are needed for callbacks or multithreading.
 
-Code inside of a function uses a different **Context** from the main program, meaning it has an independant cursor position and last time for wait operators. It still shares the same memory tape and **ID** values.
+Code inside of a function uses a different **Context** from the main program, meaning it has an independent cursor position and "last time called" for wait operators. It still shares the same memory tape and **ID** values.
 
 The **Define Function** operator is an ampersand and asterisk follwed by a **name**, tilde, and return type id `&*name~n`.
-Optionally after that can come another tilde then a comma-separated list of type indexes for parameter `&*name~n~n,n`. Parameters or no, a set of brackets comes last to define the function body.
+Optionally after that can come another tilde then a comma-separated list of type indices for parameter `&*name~n~n,n`. Parameters or not, a set of brackets comes last to define the function body.
 
 Functions use the same systems of **names**, **scopes**, **exporting**, and **backtracking** as macros.
 
@@ -676,7 +693,7 @@ The **Function Return** operator immediately ends execution of the current funct
     $!
 )
 ```
-Getting argument addresses and returning both work outside of function as well.
+Getting argument addresses and returning both work outside of a function as well.
 Using the **Get Function Param** operator outside of a function (lexically) accesses `argc: usize` and `argv: **u8`.
 Using the **Function Return** operator outside of a function (call-wise) ends the program and returns an exit code.
 ```bfpp
@@ -706,7 +723,7 @@ $! # returns out of the program with exit code 0
 |&$name|&$$name|Finds and exports an existing function
 
 ## Multithreading
-Multithreading exists as a language feature of Brainfuck++ because why not at this point? \
+Multithreading exists as a language feature of Brainfuck++ because why not at this point?
 
 Threads can be created and stored by **ID** by the program. 
 Functions defined with the signature `void(cell)` can be called directly by the **Spawn Thread** operator.
@@ -734,7 +751,7 @@ Mutexes are objects stored by **ID** that only one thread can access at a time. 
 
 The **Create Mutex** operator is a caret and an ampersand `^&`. It reads an **ID** from the tape and saves a new mutex to that **ID**.
 
-The **Mutex Block** operator is a caret before a pair of curly brackets `^{ }`. It reads a mutex **ID** from the tape and waits until that mutex is available to lock. before executing the contained code. When the contained code it finished executing, it unlocks the mutex for another thread to lock.
+The **Mutex Block** operator is a caret before a pair of curly brackets `^{ }`. It reads a mutex **ID** from the tape and waits until that mutex is available to lock before executing the contained code. When the contained code finishes executing, it unlocks the mutex enabling another thread to lock it.
 ```bfpp
 +2
 ^& # Creates a mutex with ID 2.
@@ -867,7 +884,7 @@ Some parts of the language change when `cell_size` is set to a different number 
 `cell_size` can only be set to 1, 2, 4, or 8.
 
 ### Compact Operators
-Then building the bf output, changing `compact_operators` to false produces code as close to standard Brainfuck as possible. Numerable operators will be expanded (e.g. `+5` → `+++++`) and for loops will be flattened (e.g. `{3 +> }` → `+>+>+>`).
+When building the bf output, changing `compact_operators` to false produces code as close to standard Brainfuck as possible. Numerable operators will be expanded (e.g. `+5` → `+++++`) and for loops will be flattened (e.g. `{3 +> }` → `+>+>+>`).
 
 ### IDE Integration - Launch Redirection
 The `build` command in the terminal supports the flag `-redirectLaunch`, which stops the compiler from launching the project as a child process and insteads prints a launch code to the terminal. This is meant for an IDE to read so that it can manage the project executable directly. The code is only sent if `launch_after_build = true`.\

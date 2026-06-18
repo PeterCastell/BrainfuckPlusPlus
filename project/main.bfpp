@@ -6,34 +6,11 @@ $import("window.bfpp")
 $import("render.bfpp")
 $import("game.bfpp")
 
-&setup_func_caller
-(
-    @0
-    >128
-    # reference @128..184+ as arguments
-    {8
-        *
-        $move_8
-            (<128 >17)
-            (<17 >128)
-        
-        >8
-    }
-    # reference @192 as return
-    *
-    $move_8
-        (<192 >9)
-        (<9   >192)
-    
-    <192
-    @0
-)
-
 # core setup
 <2048 $create_trig_table >2048
 
 $setup_functions
-$setup_func_caller
+$create_func_caller
 $create_window
 $setup_loaded_functions
 $setup_resources

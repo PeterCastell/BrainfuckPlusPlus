@@ -5,7 +5,7 @@ $import("functions.bfpp")
 
 # 0 = file name
 # leaves a string in @200, string length in @112, and a ptr to @200 in @120
-&read_file (
+&&read_file (
     @0
     ## prepare args for CreateFileA
 

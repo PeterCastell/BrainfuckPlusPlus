@@ -35,9 +35,9 @@ public static class BfTemplater
             {
                 if (!bfSettings.includeComments) return;
                 if (bfSettings.includeFormatting)
-                    Emit("#" + contents);
+                    Emit("# " + contents);
                 else
-                    Emit("#" + contents + "\\#");
+                    Emit("# " + contents + " \\#");
             }
 
             foreach (var global in ast.globals)
@@ -80,9 +80,9 @@ public static class BfTemplater
             {
                 if (!bfSettings.includeComments) return;
                 if (bfSettings.includeFormatting)
-                    Emit("#" + contents);
+                    Emit("# " + contents);
                 else
-                    Emit("#" + contents + "\\#");
+                    Emit("# " + contents + " \\#");
             }
             string BlankZero(long num) => num != 0 ? num.ToString() : "";
             string BlankOne(long num) => num != 1 ? num.ToString() : "";
@@ -126,7 +126,7 @@ public static class BfTemplater
                                 EmitBody(fl.Body, indent + 1, stream);
                         break;
                     case AST.InvokeBody ib:
-                        EmitComment($" macro: {ib.Name}");
+                        EmitComment($"macro: {ib.Name}");
                         EmitBody(ib.Body, indent + (bfSettings.includeComments?1:0), stream);
                         break;
                     case AST.CreateMutex:

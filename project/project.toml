@@ -6,7 +6,7 @@ outputs=["zig", "bf"]
 
 [zig]
 args=["-Dtarget=x86_64-windows", "-Dcpu=baseline"]
-cell_size=2
+cell_size=1
 
 [bf]
 include_debug_operators=false
