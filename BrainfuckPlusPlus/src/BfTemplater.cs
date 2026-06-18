@@ -8,54 +8,102 @@ namespace Brainfuck;
 
 public static class BfTemplater
 {
-    
-    
-    public static readonly Templater Template = (ast, settings, ref runCommand) =>
+    public class BfSettings : CommonSettings
     {
-        var indentBytes = Encoding.UTF8.GetBytes("    ");
-        var commentBytes = Encoding.UTF8.GetBytes("// ");
+        public bool includeDebugOperators { get; set; } = true;
+        public bool compactOperators { get; set; } = true;
+    }
+    
+    public static bool Template(AST ast, ProjectSettings projSettings)
+    {
+        var bfSettings = projSettings.bfSettings;
 
-        bool compact = settings.extraArgs.ContainsKey("compact-bf");
+        var indentBytes = Encoding.UTF8.GetBytes("    ");
+        var commentBytes = Encoding.UTF8.GetBytes("//");
+
+        void EmitGlobals(Stream stream)
+        {
+            void Emit(string line)
+            {
+                stream.Write(Encoding.UTF8.GetBytes(line));
+
+                if (bfSettings.includeFormatting)
+                    stream.WriteByte((byte)'\n');
+            }
+
+            void EmitComment(string contents)
+            {
+                if (!bfSettings.includeComments) return;
+                if (bfSettings.includeFormatting)
+                    Emit("#" + contents);
+                else
+                    Emit("#" + contents + "\\#");
+            }
+
+            foreach (var global in ast.globals)
+            {
+                switch (global)
+                {
+                    case AST.Function function:
+                        EmitComment(function.Name.ToString());
+
+                        if (function.ArgTypes.Count == 0)
+                            Emit($"&*func{function.Id}~{AST.GetTypeIndex(function.RetType)}(");
+                        else
+                            Emit($"&*func{function.Id}~{AST.GetTypeIndex(function.RetType)}~{string.Join(",", function.ArgTypes.Select(t=>AST.GetTypeIndex(t)))}(");
+                        EmitBody(function.Body, 1, stream);
+                        Emit(")");
+                        break;
+                }
+            }
+        }
         
         void EmitBody(AST.Body body, int indent, Stream stream)
         {
             void Emit(string line, long count = 1, bool debug = false)
             {
-                if (debug && settings.releaseMode == TemplateSettings.ReleaseMode.ReleaseFast && settings.includeComments == false)
+                if (debug && !bfSettings.includeDebugOperators)
                     return;
-                if (settings.includeWhitespace)
+
+                if (bfSettings.includeFormatting)
                     for (int i = 0; i < indent; i++)
                         stream.Write(indentBytes);
 
-                if (debug && settings.releaseMode == TemplateSettings.ReleaseMode.ReleaseFast)
-                    stream.Write(commentBytes);
-                
                 var bytes = Encoding.UTF8.GetBytes(line);
                 for (int i = 0; i < count; i++)
                     stream.Write(bytes);
-                
-                if (settings.includeWhitespace)
+
+                if (bfSettings.includeFormatting)
                     stream.WriteByte((byte)'\n');
             }
+            void EmitComment(string contents)
+            {
+                if (!bfSettings.includeComments) return;
+                if (bfSettings.includeFormatting)
+                    Emit("#" + contents);
+                else
+                    Emit("#" + contents + "\\#");
+            }
+            string BlankZero(long num) => num != 0 ? num.ToString() : "";
             string BlankOne(long num) => num != 1 ? num.ToString() : "";
             foreach (var ctx in body.Tokens)
             {
                 switch (ctx.Token)
                 {
                     case AST.Modify modify:
-                        if (compact)
+                        if (bfSettings.compactOperators)
                             Emit((modify.Amount < 0 ? $"-" : $"+") + BlankOne(Math.Abs(modify.Amount)));
                         else
                             Emit(modify.Amount < 0 ? $"-" : $"+", Math.Abs(modify.Amount));
                         break;
                     case AST.ModifyString modify:
                         Emit(modify.SignPositive ?
-                            $@"+""{modify.Amounts}""" :
-                            $@"-""{modify.Amounts}"""
+                            $@"+""{Util.EscapeString(modify.Amounts)}""" :
+                            $@"-""{Util.EscapeString(modify.Amounts)}"""
                         );
                         break;
                     case AST.Move move:
-                        if (compact)
+                        if (bfSettings.compactOperators)
                             Emit((move.Dist < 0 ? $"<" : $">") + BlankOne(Math.Abs(move.Dist)));
                         else
                             Emit(move.Dist < 0 ? $"<" : $">", Math.Abs(move.Dist));
@@ -67,7 +115,7 @@ public static class BfTemplater
                         break;
                     case AST.ForLoop fl:
                         if (fl.Count == 0) break;
-                        if (compact)
+                        if (bfSettings.compactOperators)
                         {
                             Emit($"{{{BlankOne(fl.Count)}");
                             EmitBody(fl.Body, indent + 1, stream);
@@ -78,11 +126,16 @@ public static class BfTemplater
                                 EmitBody(fl.Body, indent + 1, stream);
                         break;
                     case AST.InvokeBody ib:
-                        if (settings.includeComments)
-                            Emit($"# begin: {ib.Name}");
-                        EmitBody(ib.Body, indent + (settings.includeComments?1:0), stream);
-                        if (settings.includeComments)
-                            Emit($"# end: {ib.Name}");
+                        EmitComment($" macro: {ib.Name}");
+                        EmitBody(ib.Body, indent + (bfSettings.includeComments?1:0), stream);
+                        break;
+                    case AST.CreateMutex:
+                        Emit($"^&");
+                        break;
+                    case AST.MutexBody ib:
+                        Emit($"^{{");
+                        EmitBody(ib.Body, indent + (bfSettings.includeComments?1:0), stream);
+                        Emit("}");
                         break;
                     case AST.Print:
                         Emit($".");
@@ -91,40 +144,34 @@ public static class BfTemplater
                         Emit($",");
                         break;
                     case AST.WaitMS waitMs:
-                        Emit($"!{BlankOne(waitMs.Delay)}");
+                        Emit($"!{BlankZero(waitMs.Delay)}");
                         break;
                     case AST.DebugPrint dbPrint:
                         if (dbPrint.Message is not null)
-                            Emit($@"@.{BlankOne(dbPrint.Width)}""{dbPrint.Message.Value}""", debug: true);
+                            Emit($@"@.{BlankOne(dbPrint.Width)}""{Util.EscapeString(dbPrint.Message.Value)}""", debug: true);
                         else
                             Emit($@"@.{BlankOne(dbPrint.Width)}", debug: true);
                         break;
                     case AST.DebugAssert assert:
                         if (assert.Message is not null)
-                            Emit($@"@{assert.Index}""{assert.Message.Value}""", debug: true);
+                            Emit($@"@{assert.Index}""{Util.EscapeString(assert.Message.Value)}""", debug: true);
                         else
                             Emit($@"@{assert.Index}", debug: true);
                         break;
-                    case AST.DebugPrintLitteral dbLitteral:
-                        Emit($@"@""{dbLitteral.Message}""", debug: true);
-                        break;
                     case AST.DebugQuit quit:
-                        Emit($@"@!", debug: true);
+                        if (quit.Message is not null)
+                            Emit($@"@!""{Util.EscapeString(quit.Message.Value)}""", debug: true);
+                        else
+                            Emit($@"@!", debug: true);
+                        break;
+                    case AST.DebugPrintLitteral dbLitteral:
+                        Emit($@"@""{Util.EscapeString(dbLitteral.Message)}""", debug: true);
                         break;
                     case AST.TakeReference:
                         Emit($"*");
                         break;
                     case AST.Dereference:
                         Emit($"~");
-                        break;
-                    case AST.FindExternFunction:
-                        Emit($"%*");
-                        break;
-                    case AST.PrepareExternFunction:
-                        Emit($"%&");
-                        break;
-                    case AST.CallExternFunction:
-                        Emit($"%$");
                         break;
                     case AST.GetEmbedReference embed:
                         var filePath = ast.globals
@@ -133,26 +180,52 @@ public static class BfTemplater
                             .FilePath;
                         Emit($@"$embed_file(""{filePath}"")");
                         break;
+                    case AST.GetFunction getFunc:
+                        Emit($"$*func{getFunc.Id}");
+                        break;
+                    case AST.GetFunctionParam getFuncParam:
+                        Emit($"$*{getFuncParam.Index}");
+                        break;
+                    case AST.GetMainParam getMainParam:
+                        Emit($"$*{getMainParam.Index}");
+                        break;
+                    case AST.Return @return:
+                        Emit("$!");
+                        break;
+                    case AST.FindExternFunction:
+                        Emit("%*");
+                        break;
+                    case AST.PrepareExternCaller:
+                        Emit("%&");
+                        break;
+                    case AST.CallExternFunction:
+                        Emit("%$");
+                        break;
+                    case AST.SpawnThread spawn:
+                        Emit($"^$func{spawn.FuncId}");
+                        break;
+                    case AST.JoinThread:
+                        Emit("^!");
+                        break;
+                    case AST.SetRawInput:
+                        Emit("!.");
+                        break;
                     case AST.Comment comment:
-                        if (settings.includeComments)
-                            Emit($"#{comment.Content}");
+                        EmitComment(comment.Content.ToString());
                         break;
                     default: break;
                 }
             }
         }
         
-        Console.WriteLine("Templating...");
-        
-        Directory.CreateDirectory(Path.Join(settings.projectDir, "build-bf"));
-        var fileStream = File.Create(Path.Join(settings.projectDir, "build-bf", settings.projectName + ".bfpp"));
+        Directory.CreateDirectory(Path.Join(projSettings.projectDir, "build-bf"));
+        using var fileStream = File.Create(Path.Join(projSettings.projectDir, "build-bf", projSettings.projectName + ".bfpp"));
 
-        EmitBody(ast.body, 1, fileStream);
-
-        fileStream.Close();
+        EmitGlobals(fileStream);
+        EmitBody(ast.body, 0, fileStream);
 
         Console.WriteLine("Bf Build Completed");
         
         return true;
-    };
+    }
 }

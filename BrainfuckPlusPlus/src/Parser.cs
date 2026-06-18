@@ -1,6 +1,8 @@
 namespace Brainfuck;
 
 using System.Collections.Concurrent;
+using System.CommandLine.Parsing;
+using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -8,13 +10,13 @@ using System.Text.RegularExpressions;
 public class Parser(Stream? errorStream = null)
 {
     readonly StreamWriter errorWriter = new(errorStream ?? Console.OpenStandardOutput());
+    readonly Dictionary<string, (LexicalScope scope, bool hasReturn)> parsedFiles = [];
 
     readonly ConcurrentDictionary<string, AST.FileEmbed> fileEmbeds = [];
     int nextFileEmbedId = 0;
-    int EmbedFile(string fileName)
-    {
-        return fileEmbeds.GetOrAdd(fileName, key => new(nextFileEmbedId++, key)).Id;
-    }
+    int EmbedFile(string filePath) => fileEmbeds.GetOrAdd(filePath, key => new(nextFileEmbedId++, key)).Id;
+
+    readonly Dictionary<int, (ASTFunctionDefine, AST.TokenContext)> functions = [];
     
     class ParseException(string message, string afterMessage, TokenPosition start, TokenPosition end, string source, string filename) : Exception
     {
@@ -98,12 +100,25 @@ public class Parser(Stream? errorStream = null)
         return builder.ToString();
     }
     
-    LexicalScope? InternalParse(string path, Func<LexicalScope, LexicalScope>? extraStep)
+    (LexicalScope scope, bool hasReturn)? InternalParse(string path, Func<LexicalScope, LexicalScope>? extraStep)
     {
-        string uri = new Uri(path).AbsoluteUri;
+        string fullPath = Path.GetFullPath(path);
+
+        // if (fileStack.Contains(fullPath))
+        // {
+        //     errorWriter.WriteLine("Imports cannot be recursive");
+        //     errorWriter.Flush();
+        //     return null;
+        // }
+        // fileStack.Add(fullPath);
+
+        if (parsedFiles.TryGetValue(fullPath, out var cachedScope))
+            return cachedScope;
+
         string source;
         try
         {
+            string uri = new Uri(path).AbsoluteUri;
             source = LSP.FileCache.cache.TryGetValue(uri, out var cached)
                 ? cached
                 : File.ReadAllText(path);
@@ -116,21 +131,24 @@ public class Parser(Stream? errorStream = null)
             return null;
         }
         
-        string directory = Path.GetDirectoryName(path)!;
         string filename = Path.GetFileName(path);
         
         try
         {
             var tokens = Tokenize(source, filename);
 
-            var rootContext = ParseTree(tokens, filename, uri);
-            
-            rootContext = CompleteMacros(rootContext, directory);
+            var rootContext = ParseTree(tokens, filename, fullPath);
+
+            rootContext = CompleteMacros(rootContext);
+
+            var hasReturn = CheckForUnusedCode(rootContext);
 
             if (extraStep is not null)
                 rootContext = extraStep(rootContext);
 
-            return rootContext;
+            // fileStack.Remove(fullPath);
+            parsedFiles.TryAdd(fullPath, (rootContext, hasReturn));
+            return (rootContext, hasReturn);
         }
         catch (ParseException ex)
         {
@@ -145,32 +163,50 @@ public class Parser(Stream? errorStream = null)
 
     public AST? Parse(string path)
     {
-        var scope = InternalParse(path, null);
-
-        if (scope is null)
-            return null;
-
-        var ast = CreateASTBodyFromLexicalScope(scope);
-        
-        ast = CompressOperations(ast);
-
-        ast = Cleanup(ast);
-
         var globals = new List<AST.GlobalToken>();
+
+        var parsed = InternalParse(path, scope =>
+        {
+            foreach (var (function, _) in functions.Values)
+            {
+                var funcScope = CompleteMacros(function.Scope);
+                var returns = CheckForUnusedCode(funcScope);
+
+                var funcBody = CreateASTBodyFromLexicalScope(funcScope);
+                funcBody = CompressOperations(funcBody);
+                funcBody = Cleanup(funcBody);
+
+                globals.Add(new AST.Function(function.Name, function.Id, function.RetType, function.ArgTypes, funcBody, returns, function.AssertId));
+            }
+
+            return scope;
+        });
+
+        if (parsed is null)
+            return null;
+        
+        var (scope, hasReturn) = parsed.Value;
+
+        var body = CreateASTBodyFromLexicalScope(scope);
+        body = CompressOperations(body);
+        body = Cleanup(body);
+
         globals.AddRange(fileEmbeds.Values);
-        return new(ast, globals);
-    }
-    LexicalScope? IncompleteParse(string path)
-    {
-        return InternalParse(path, null);
+        
+        return new(body, globals, hasReturn);
     }
     
+    LexicalScope? IncompleteParse(string path)
+    {
+        return InternalParse(path, null)?.scope;
+    }
+
     public record struct Token
     {
         [AttributeUsage(AttributeTargets.Field)]
         class TypeRegex(string regexStr) : Attribute
         {
-            public readonly Regex regex = new(@"\G" + regexStr);
+            public readonly Regex regex = new(@"\G" + regexStr, RegexOptions.Multiline);
             public static readonly Regex[] AllRegexes = typeof(Type).GetFields(BindingFlags.Public | BindingFlags.Static).Select(field => field.GetCustomAttribute<TypeRegex>()!.regex).ToArray();
         }
         public static Regex GetRegex(Type type) => TypeRegex.AllRegexes[(int)type];
@@ -190,27 +226,37 @@ public class Parser(Stream? errorStream = null)
             [TypeRegex(@"\%\$")] ExternInvoke,
             [TypeRegex(@"\%\&")] ExternDefine,
 
+            [TypeRegex(@"\^\$+")] SpawnThread,
+            [TypeRegex(@"\^\!")] JoinThread,
+            [TypeRegex(@"\^\&")] CreateMutex,
+
             [TypeRegex(@"\.")] Print,
             [TypeRegex(@"\,")] Read,
             [TypeRegex(@"\[")] OpenWhileLoop,
             [TypeRegex(@"\]")] CloseWhileLoop,
+            [TypeRegex(@"\^\{")] OpenMutex,
             [TypeRegex(@"\{")] OpenForLoop,
-            [TypeRegex(@"\}")] CloseForLoop,
-            [TypeRegex(@"\&\$")] ExportMacro,
-            [TypeRegex(@"\&")] DefineMacro,
-            [TypeRegex(@"\$")] InvokeMacro,
+            [TypeRegex(@"\}")] CloseForLoopOrMutex,
+            [TypeRegex(@"\&\&?\*")] DefineFunction,
+            [TypeRegex(@"\$+\*")] GetFunction,
+            [TypeRegex(@"\$!")] Return,
+            [TypeRegex(@"\&\$+")] ExportMacro,
+            [TypeRegex(@"\&\&?")] DefineMacro,
+            [TypeRegex(@"\$+")] InvokeMacro,
+
             [TypeRegex(@"\(")] OpenMacro,
             [TypeRegex(@"\)")] CloseMacro,
 
+            [TypeRegex(@"\!\,")] SetRawInput,
             [TypeRegex(@"\!")] Wait,
             [TypeRegex(@"\*")] TakeReference,
             [TypeRegex(@"\~")] Dereference,
 
-            [TypeRegex(@"\#.*")] Comment,
+            [TypeRegex(@"#(.*?)(?:\\\#|$)")] Comment,
             [TypeRegex(@"\d+")] Number,
-            [TypeRegex(@"\'.\'")] Character,
-            [TypeRegex(@"(?=\D)\w+")] Name,
-            [TypeRegex(@"\"".*\""")] String
+            [TypeRegex(@"\'(\\?.)\'")] Character,
+            [TypeRegex(@"\w+")] Name,
+            [TypeRegex(@"\""(.*?)(?<!\\)\""")] String
         }
         public required Type type;
         public required StringSlice content;
@@ -220,6 +266,17 @@ public class Parser(Stream? errorStream = null)
 
         public override readonly string ToString() => $"Token.{type} {{ Row = {position.Row}, Column = {position.Column}, Content = \"{content}\" }}";
     }
+
+    static char? GetEscapedCharacter(char c) => c switch
+    {
+        '\"' => '\"',
+        '\\' => '\\',
+        'n' => '\n',
+        'b' => '\b',
+        't' => '\t',
+        '0' => '\0',
+        _ => null
+    };
     
     static List<Token> Tokenize(string source, string filename)
     {
@@ -255,10 +312,11 @@ public class Parser(Stream? errorStream = null)
             {
                 var match = Token.GetRegex(type).Match(source, position);
                 if (!match.Success) continue;
+                var capture = match.Groups.Count > 1 ? match.Groups[1] : match;
                 tokens.Add(new()
                 {
                     type = type,
-                    content = new(source, match.Index, match.Length),
+                    content = new(source, capture.Index, capture.Length),
                     position = tokenPosition,
                 });
 
@@ -275,14 +333,16 @@ public class Parser(Stream? errorStream = null)
         return tokens;
         
     }
-    
+
     enum BodyType
     {
         Root,
         While,
         For,
         Macro,
-        MacroArg
+        MacroArg,
+        Function,
+        Mutex
     }
 
     record LexicalScope(BodyType Type, AST.Body Body, LexicalScope? Parent)
@@ -297,28 +357,53 @@ public class Parser(Stream? errorStream = null)
     {
         public override string ToString() => $"CallContext {{ Site = {Site}, Scope = {Scope}, Args = [{Args.Count}] }}";
     }
-    
 
-    record ASTMacroDefine(StringSlice Name, LexicalScope Scope, bool IsExporting) : AST.Token
+
+    interface NamedEntity
     {
-        static int nextAssertRefId = 0;
-        public int? assertRefId;
-        public int PutAssertRefId => assertRefId ?? (assertRefId = nextAssertRefId++).Value;
-        
+        StringSlice Name { get; }
+        bool IsExporting { get; }
+    }
+    interface RelativeAssertable
+    {
+        static int nextAssertId = 0;
+        public int? AssertId { get; set; }
+        public int EnsureAssertId => AssertId ?? (AssertId = nextAssertId++).Value;
+    }
+    record ASTMacroDefine(StringSlice Name, LexicalScope Scope, bool IsExporting) : AST.Token, NamedEntity, RelativeAssertable
+    {
+        public int? AssertId { get; set; }
+
         public override string ToString() => $"ASTMacroDefine {{ Name = {Name}, Scope = {Scope}, IsExporting = {IsExporting} }}";
     }
-    record ASTParameter(int Index, int Depth, List<LexicalScope> Args) : AST.Token;
+    record ASTMacroParameter(int Index, int Depth, List<LexicalScope> Args) : AST.Token;
     record ASTMacroInvoke(StringSlice Name, int Depth, List<LexicalScope> Args) : AST.Token;
-    record ASTMacroExport(StringSlice Name) : AST.Token;
-    record ASTMacroExportLinked(StringSlice Name, ASTMacroDefine Target) : AST.Token;
+    record ASTExport(StringSlice Name, int Depth) : AST.Token;
+    record ASTLink(NamedEntity Target, bool IsExporting) : AST.Token;
+    record ASTFunctionDefine(StringSlice Name, LexicalScope Scope, AST.Type RetType, List<AST.Type> ArgTypes, bool IsExporting) : AST.Token, NamedEntity, RelativeAssertable
+    {
+        static int nextId;
+        int? id;
+        public int Id => id ?? (id = nextId++).Value;
+        public int? AssertId { get; set; }
+    }
+    record ASTFunctionGet(StringSlice Name, int Depth) : AST.Token;
+    record ASTSpawnThread(StringSlice Name, int Depth) : AST.Token;
 
-    record LexWhileLoop(LexicalScope Scope) : AST.Token;
-    record LexForLoop(LexicalScope Scope, long Count) : AST.Token;
-    record LexInvokeBody(StringSlice Name, LexicalScope Scope) : AST.Token;
+    // loose scopes allow exporting out of them
+    interface LooseScope
+    {
+        LexicalScope Scope { get; }
+    }
+
+    record LexWhileLoop(LexicalScope Scope) : AST.Token, LooseScope;
+    record LexForLoop(LexicalScope Scope, long Count) : AST.Token, LooseScope;
+    record LexInvokeBody(StringSlice Name, LexicalScope Scope) : AST.Token, LooseScope;
+    record LexMutexBody(LexicalScope Scope) : AST.Token, LooseScope;
 
     record LexDebugAssertRelative(long Offset, int Depth, StringSlice? Message) : AST.Token;
 
-    static LexicalScope ParseTree(List<Token> tokens, string filename, string fileUri)
+    static LexicalScope ParseTree(List<Token> tokens, string filename, string filePath)
     {
         List<LexicalScope> stack = [new(BodyType.Root, new(), null)];
         int position = 0;
@@ -332,6 +417,8 @@ public class Parser(Stream? errorStream = null)
             filename
         );
 
+        ASTFunctionDefine? GetFunction() => stack.Select(scope => scope.Owner?.Token as ASTFunctionDefine).FirstOrDefault(owner => owner is not null);
+        string Peek() => position + 1 < tokens.Count ? tokens[position + 1].ToString() : "EOF";
         Token? GetNext(Token.Type type, ref TokenPosition end)
         {
             if (position + 1 < tokens.Count && tokens[position + 1].type == type)
@@ -355,12 +442,35 @@ public class Parser(Stream? errorStream = null)
             if (GetNext(Token.Type.Number, ref end) is Token t1)
                 return byte.TryParse(t1.content, out var n) ? n : throw Except("Number is too large");
             if (GetNext(Token.Type.Character, ref end) is Token t2)
-                return t2.content[1] < 256 ? t2.content[1] : throw Except("Character must have a char code less than 256");
+            {
+                char c = t2.content.Length == 2 ?
+                    GetEscapedCharacter(t2.content[1]) ?? throw Except(@$"Unknown escape character ""{t2.content[1]}""") :
+                    t2.content[0];
+                return c < 256 ? c : throw Except("Character must have a char code less than 256");
+            }
             return 1;
+        }
+        string? GetNextString(ref TokenPosition end)
+        {
+            if (GetNext(Token.Type.String, ref end) is not Token tok) return null;
+            var str = tok.content;
+            var outStr = new StringBuilder();
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (str[i] is '\\')
+                {
+                    var c = GetEscapedCharacter(str[i + 1]) ?? throw Except(@$"Unknown escape character ""{str[i + 1]}""");
+                    outStr.Append(c);
+                    i++;
+                }
+                else
+                    outStr.Append(str[i]);
+            }
+            return outStr.ToString();
         }
         AST.TokenContext Push(Token srcToken, AST.Token token, TokenPosition end)
         {
-            var ctx = new AST.TokenContext(srcToken.position, end, srcToken.content.Source, new(filename), new(fileUri), token);
+            var ctx = new AST.TokenContext(srcToken.position, end, srcToken.content.Source, filename, filePath, token);
             stack.Last().Body.Tokens.Add(ctx);
             return ctx;
         }
@@ -381,11 +491,11 @@ public class Parser(Stream? errorStream = null)
             {
                 case Token.Type.Add:
                     {
-                        if (GetNext(Token.Type.String, ref end) is Token str)
+                        if (GetNextString(ref end) is string str)
                         {
-                            foreach (var c in str.content)
+                            foreach (var c in str)
                                 if (c > 255) throw Except("Characters must have a char code less than 256");
-                            Push(token, new AST.ModifyString(true, str.content[1..^1]), end);
+                            Push(token, new AST.ModifyString(true, str), end);
                             break;
                         }
                         Push(token, new AST.Modify(GetNextByteOrCharOr1(ref end)), end);
@@ -393,11 +503,11 @@ public class Parser(Stream? errorStream = null)
                     break;
                 case Token.Type.Subtract:
                     {
-                        if (GetNext(Token.Type.String, ref end) is Token str)
+                        if (GetNextString(ref end) is string str)
                         {
-                            foreach (var c in str.content)
+                            foreach (var c in str)
                                 if (c > 255) throw Except("Characters must have a char code less than 256");
-                            Push(token, new AST.ModifyString(false, str.content[1..^1]), end);
+                            Push(token, new AST.ModifyString(false, str), end);
                             break;
                         }
                         Push(token, new AST.Modify(-GetNextByteOrCharOr1(ref end)), end);
@@ -416,7 +526,7 @@ public class Parser(Stream? errorStream = null)
                     Push(token, new AST.Read(), end);
                     break;
                 case Token.Type.Wait:
-                    Push(token, new AST.WaitMS(GetNextNumber64Or1(ref end)), end);
+                    Push(token, new AST.WaitMS(GetNextNumber64(ref end) ?? 0), end);
                     break;
                 case Token.Type.TakeReference:
                     Push(token, new AST.TakeReference(), end);
@@ -428,7 +538,7 @@ public class Parser(Stream? errorStream = null)
                     Push(token, new AST.FindExternFunction(), end);
                     break;
                 case Token.Type.ExternDefine:
-                    Push(token, new AST.PrepareExternFunction(), end);
+                    Push(token, new AST.PrepareExternCaller(), end);
                     break;
                 case Token.Type.ExternInvoke:
                     Push(token, new AST.CallExternFunction(), end);
@@ -436,21 +546,20 @@ public class Parser(Stream? errorStream = null)
                 case Token.Type.Assert:
                     {
                         if (GetNextNumberSigned64(ref end) is long n)
-                            Push(token, new AST.DebugAssert(n, GetNext(Token.Type.String, ref end)?.content[1..^1]), end);
+                            Push(token, new AST.DebugAssert(n, GetNextString(ref end)?.Slice()), end);
                         else
-                            Push(token, new AST.DebugPrintLitteral(GetNext(Token.Type.String, ref end)?.content[1..^1] ??
+                            Push(token, new AST.DebugPrintLitteral(GetNext(Token.Type.String, ref end)?.content ??
                                 throw Except("Debug Assert must be followed by a number or a string or both", "When followed by a number, the program is stopped if the tape cursor does not match said number, also printing the string if provided\nWhen followed by just a string, that string will always be printed.")
                             ), end);
                     }
                     break;
                 case Token.Type.AssertRelative:
                     {
-                        // var depth = 0;
-                        // while (GetNext(Token.Type.InvokeMacro, ref end) is not null) depth++;
-                        var offset = GetNextNumberSigned64(ref end) ?? 0;
-                        var message = GetNext(Token.Type.String, ref end)?.content[1..^1];
-
-                        Push(token, new LexDebugAssertRelative(offset, 0, GetNext(Token.Type.String, ref end)?.content[1..^1]), end);
+                        Push(token, new LexDebugAssertRelative(
+                            GetNextNumberSigned64(ref end) ?? 0,
+                            0,
+                            GetNext(Token.Type.String, ref end)?.content),
+                        end);
                     }
                     break;
                 case Token.Type.DebugPrint:
@@ -458,61 +567,143 @@ public class Parser(Stream? errorStream = null)
                         var n = GetNextNumber64Or1(ref end);
                         if (n == 0)
                             throw Except("Debug Assert Print can't have a width of zero");
-                        Push(token, new AST.DebugPrint(n, GetNext(Token.Type.String, ref end)?.content[1..^1]), end); 
+                        Push(token, new AST.DebugPrint(n, GetNextString(ref end)?.Slice()), end);
                     }
                     break;
 
                 case Token.Type.DebugQuit:
-                    {
-                        Push(token, new AST.DebugQuit(), end);
-                    }
+                    Push(token, new AST.DebugQuit(GetNextString(ref end)?.Slice()), end);
                     break;
                 case Token.Type.OpenWhileLoop:
-                    {
-                        PushContext(BodyType.While, lc => Push(token, new LexWhileLoop(lc), end));
-                    }
+                    PushContext(BodyType.While, lc => Push(token, new LexWhileLoop(lc), end));
                     break;
                 case Token.Type.OpenForLoop:
+                    PushContext(BodyType.For,
+                        ctx => Push(token, new LexForLoop(ctx, GetNextNumber64Or1(ref end)), end)
+                    );
+                    break;
+                case Token.Type.OpenMutex:
                     {
-                        PushContext(BodyType.For,
-                            ctx => Push(token, new LexForLoop(ctx, GetNextNumber64Or1(ref end)), end)
+                        PushContext(BodyType.Mutex,
+                            ctx => Push(token, new LexMutexBody(ctx), end)
                         );
                     }
                     break;
+                case Token.Type.CreateMutex:
+                    Push(token, new AST.CreateMutex(), end);
+                    break;
                 case Token.Type.DefineMacro:
                     {
-                        var isExporting = GetNext(Token.Type.DefineMacro, ref end) is not null;
-                        var name = GetNext(Token.Type.Name, ref end) is Token n ? n.content : throw Except("Macro Definition must be followed by a name", "The name is how Macro Invokations will refer to this macro");
+                        var isExporting = token.Length > 1;
+                        var name = GetNext(Token.Type.Name, ref end) is Token n ? n.content : throw Except("Macro Definition must be followed by a name");
                         foreach (var builtin in Enum.GetValues<BuiltinMacros.Macro>())
                             if (BuiltinMacros.GetMacroName(builtin) == name)
                                 throw Except("Cannot define macro with same name as builtin macro");
 
                         foreach (var t in stack.Last().Body.Tokens)
-                            if (t.Token is ASTMacroDefine other && other.Name == name)
+                            if (t.Token is NamedEntity other && other.Name == name)
                                 throw Except("Cannot define macro with duplicate name within the same scope");
 
-                        if (GetNext(Token.Type.OpenMacro, ref end) is null) throw Except("Macro Name must be followed by Open Bracket", "Brackets after a macro definition contain the code that will be pasted in at the invokation site");
+                        if (GetNext(Token.Type.OpenMacro, ref end) is null) throw Except("Macro Name must be followed by Open Bracket", "Brackets after a macro definition contain the code that will be pasted in at the invocation site");
 
                         PushContext(BodyType.Macro, ctx => Push(token, new ASTMacroDefine(name, ctx, isExporting), end));
                     }
                     break;
+                case Token.Type.DefineFunction:
+                    {
+                        if (GetFunction() is not null) throw Except("Cannot define function within another function");
+
+                        string example = "This looks like `&*foo~1~3,2()` or `&&*bar~12()`";
+                        var isExporting = token.Length > 1;
+                        var name = GetNext(Token.Type.Name, ref end) is Token n ? n.content : throw Except("Function Definition must be followed by a name", example);
+
+                        foreach (var builtin in Enum.GetValues<BuiltinMacros.Macro>())
+                            if (BuiltinMacros.GetMacroName(builtin) == name)
+                                throw Except("Cannot define function with same name as builtin macro");
+                        
+                        foreach (var t in stack.Last().Body.Tokens)
+                            if (t.Token is NamedEntity other && other.Name == name)
+                                throw Except("Cannot define function with duplicate name within the same scope");
+                        
+                        _ = GetNext(Token.Type.Dereference, ref end) ?? throw Except("Function Definition name must be followed by a tilde", example);
+
+                        var retTypeIndex = GetNextNumber(ref end) ?? throw Except(@$"Function definition must have a argument count after the first tilde separator. Found ""{Peek()}""", example);
+                        var retType = AST.GetType(retTypeIndex - 1) ?? throw Except(@$"Return type index ""{retTypeIndex}"" out of range", "Index must be from 1 to " + AST.TypeCount);
+                        var args = new List<AST.Type>();
+                        if (GetNext(Token.Type.Dereference, ref end) is not null)
+                        {
+                            while (true)
+                            {
+                                var argTypeIndex = GetNextNumber(ref end) ?? throw Except(@$"Expected Arg type index ilde to mark end of args. Found ""{Peek()}""", example);
+                                var argType = AST.GetType(argTypeIndex - 1) ?? throw Except(@$"Arg type index ""{argTypeIndex}"" out of range", "Index must be from 1 to " + AST.TypeCount);
+                                args.Add(argType);
+
+                                if (GetNext(Token.Type.Read, ref end) is not null)
+                                    continue;
+                                if (GetNext(Token.Type.OpenMacro, ref end) is not null)
+                                    break;
+                                throw Except(@$"Expected comma to mark next arg or open bracket to mark start of body. Found ""{Peek()}""", example);
+                            }
+                        }
+                        else
+                            _ = GetNext(Token.Type.OpenMacro, ref end) ?? throw Except("Function Definition must be followed by open bracket", "Brackets after a function definition contain the code that will be executed when the function is called");
+
+                        if (args.Count > AST.Function.MaxArgCount)
+                            throw Except(@$"Max argument count exceeded. The limit is 64.");
+                        
+                        PushContext(BodyType.Function, ctx => Push(token, new ASTFunctionDefine(name, ctx, retType, args, isExporting), end));
+                    }
+                    break;
+
+                case Token.Type.GetFunction:
+                    {
+                        int depth = token.Length - 2;
+
+                        if (GetNextNumber(ref end) is int paramIndex)
+                        {
+                            if (depth > 0) throw Except("Search Depth is not allowed when getting function parameters", "use a single dollar sign");
+                            var func = GetFunction();
+                            if (func is null && paramIndex >= 2) throw Except("Parameter out of range for root parameters (argc, argv)");
+                            if (func is not null && paramIndex >= func.ArgTypes.Count) throw Except(@$"Parameter out of range for function ""{func.Name}""");
+                            Push(token, func is null ?
+                                new AST.GetMainParam(paramIndex) :
+                                new AST.GetFunctionParam(paramIndex),
+                            end);
+                        }
+                        else if (GetNext(Token.Type.Name, ref end) is Token nt)
+                        {
+                            var name = nt.content;
+
+                            foreach (var bm in Enum.GetValues<BuiltinMacros.Macro>())
+                                if (BuiltinMacros.GetMacroName(bm) == name)
+                                    throw Except(@$"Cannot get address non-function ""{name}""");
+                            
+                            Push(token, new ASTFunctionGet(name, depth), end);
+                        }
+                        else
+                            throw Except("Macro Invocation must be followed by a name or parameter index", "A name will invoke another macro here, and a number will retrieve a parameter by index");
+                    }
+                    break;
+
+                case Token.Type.Return:
+                    Push(token, new AST.Return(GetFunction()?.RetType ?? AST.Type.U8), end);
+                    break;
+
                 case Token.Type.ExportMacro:
                     {
                         var name = GetNext(Token.Type.Name, ref end) is Token n ? n.content : throw Except("Macro Export must be followed by a name", "The name is how Macro which will be relayed to the surrounding scope");
-                        Push(token, new ASTMacroExport(name), end);
+                        Push(token, new ASTExport(name, token.Length - 2), end);
                     }
                     break;
                 case Token.Type.InvokeMacro:
                     {
-                        int depth = 0;
-                        while (GetNext(Token.Type.InvokeMacro, ref end) is not null)
-                            depth++;
+                        int depth = token.Length - 1;
 
                         var args = new List<LexicalScope>();
                         AST.TokenContext tokenCtx;
                         if (GetNextNumber(ref end) is int paramIndex)
                         {
-                            tokenCtx = Push(token, new ASTParameter(paramIndex, depth, args), end);
+                            tokenCtx = Push(token, new ASTMacroParameter(paramIndex, depth, args), end);
                         }
                         else if (GetNext(Token.Type.Name, ref end) is Token nt)
                         {
@@ -528,7 +719,7 @@ public class Parser(Stream? errorStream = null)
                                 _ = GetNext(Token.Type.OpenMacro, ref end) ?? throw Except("Builtin Macro Invocation must be followed by an argument");
                                 var str = GetNext(Token.Type.String, ref end) ?? throw Except("Builtin Macro Invocation must have a string as an argument");
                                 _ = GetNext(Token.Type.CloseMacro, ref end) ?? throw Except("Macro argument body must be closed");
-                                Push(token, new BuiltinMacros.ASTInvocation(builtin.Value, str.content[1..^1]), end);
+                                Push(token, new BuiltinMacros.ASTInvocation(builtin.Value, str.content), end);
                                 break;
                             }
                             tokenCtx = Push(token, new ASTMacroInvoke(name, depth, args), end);
@@ -551,15 +742,15 @@ public class Parser(Stream? errorStream = null)
                         if (PopContext().type != BodyType.While) throw Except("Unexpected End of While Loop when not in while loop body");
                     }
                     break;
-                case Token.Type.CloseForLoop:
+                case Token.Type.CloseForLoopOrMutex:
                     {
-                        if (PopContext().type != BodyType.For) throw Except("Unexpected End of For Loop when not in for loop body");
+                        if (PopContext().type is not (BodyType.For or BodyType.Mutex)) throw Except("Unexpected End of For Loop or Mutex when not in for loop body or mutex");
                     }
                     break;
                 case Token.Type.CloseMacro:
                     {
                         var (type, owner) = PopContext();
-                        if (type == BodyType.Macro)
+                        if (type is BodyType.Macro or BodyType.Function)
                         { }
                         else if (type == BodyType.MacroArg)
                         {
@@ -570,7 +761,7 @@ public class Parser(Stream? errorStream = null)
                                     (owner!.Value.Token switch
                                     {
                                         ASTMacroInvoke invoke => invoke.Args,
-                                        ASTParameter param => param.Args,
+                                        ASTMacroParameter param => param.Args,
                                         _ => throw new Exception("How could this be anything else??")
                                     }).Add(ctx);
                                     return owner!.Value;
@@ -581,10 +772,21 @@ public class Parser(Stream? errorStream = null)
                     }
                     break;
 
-                case Token.Type.Comment:
+                case Token.Type.SpawnThread:
                     {
-                        Push(token, new AST.Comment(token.content[1..]), end);
+                        int depth = token.Length - 2;
+                        var name = GetNext(Token.Type.Name, ref end)?.content ?? throw Except("Spawn Thread must be followed by the name of the function");
+                        Push(token, new ASTSpawnThread(name, depth), end);
                     }
+                    break;
+                case Token.Type.JoinThread:
+                    Push(token, new AST.JoinThread(), end);
+                    break;
+                case Token.Type.SetRawInput:
+                    Push(token, new AST.SetRawInput(), end);
+                    break;
+                case Token.Type.Comment:
+                    Push(token, new AST.Comment(token.content), end);
                     break;
 
                 default: throw Except($"Unexpected Token: {token}");
@@ -601,31 +803,7 @@ public class Parser(Stream? errorStream = null)
 
         return stack.First();
     }
-    
-    static LexicalScope DuplicateLexScope(LexicalScope scope, LexicalScope? newParent = null)
-    {
-        var newScope = scope with { Body = new(), Parent = newParent ?? scope.Parent };
-        
-        foreach (var ctx in scope.Body.Tokens)
-        {
-            switch (ctx.Token)
-            {
-                case LexWhileLoop wl:
-                    newScope.Body.Tokens.Add(ctx with { Token = new LexWhileLoop(DuplicateLexScope(wl.Scope, newScope)) });
-                    break;
-                case LexForLoop fl:
-                    newScope.Body.Tokens.Add(ctx with { Token = new LexForLoop(DuplicateLexScope(fl.Scope, newScope), fl.Count) });
-                    break;
-                case LexInvokeBody ib:
-                    throw new Exception("DuplicateLexScope - should not be run on a scope containing LexInvokeBody");
-                default:
-                    newScope.Body.Tokens.Add(ctx);
-                    break;
-            }
-        }
-        return newScope;
-    }
-    LexicalScope CompleteMacros(LexicalScope rootScope, string projectDirectory)
+    LexicalScope CompleteMacros(LexicalScope rootScope)
     {
         List<CallContex> callStack = [new(null, rootScope, [])];
 
@@ -649,7 +827,6 @@ public class Parser(Stream? errorStream = null)
 
         (LexicalScope scope, List<LexicalScope> args) FindSearchScope(AST.TokenContext callSite, LexicalScope scope, int depth)
         {
-
             for (; depth > 0; depth--)
             {
                 if (scope.Parent == null)
@@ -667,31 +844,28 @@ public class Parser(Stream? errorStream = null)
                     }
                 }
             }
-            Console.WriteLine("fell through :(");
             return (scope, []);
         }
 
-        (AST.TokenContext site, ASTMacroDefine macro, LexicalScope scope)? FindMacro(AST.TokenContext callSite, LexicalScope scope, StringSlice name, int depth)
+        NamedEntity? FindNamedEntity(AST.TokenContext callSite, LexicalScope scope, StringSlice name, int depth)
         {
-            static (AST.TokenContext site, ASTMacroDefine macro, LexicalScope scope)? Recurse(LexicalScope scope, StringSlice name)
+            static NamedEntity? Recurse(LexicalScope scope, StringSlice name)
             {
-                // define in this scope
-                foreach (var ctx in scope.Body.Tokens)
-                    if (ctx.Token is ASTMacroDefine define && define.Name == name)
-                        return (ctx, define, scope);
-
-                // exported define or export in an invocation scope
-                foreach (var ctx in scope.NewScope!.Body.Tokens)
+                foreach (var ctx in scope.Body.Tokens.Concat(scope.NewScope!.Body.Tokens))
                 {
-                    if (ctx.Token is LexInvokeBody invocation)
+                    // defined in this scope
+                    if (ctx.Token is NamedEntity entity && entity.Name == name)
+                        return entity;
+                    // exported from child scope
+                    if (ctx.Token is LooseScope looseScope)
                     {
-                        foreach (var invToken in invocation.Scope.Body.Tokens)
+                        foreach (var childToken in looseScope.Scope.Body.Tokens)
                         {
-                            if (invToken.Token is ASTMacroDefine { IsExporting: true } define && define.Name == name)
-                                return (ctx, define, define.Scope);
+                            if (childToken.Token is NamedEntity { IsExporting: true } exEntity && exEntity.Name == name)
+                                return exEntity;
 
-                            if (invToken.Token is ASTMacroExportLinked export)
-                                return (ctx, export.Target, export.Target.Scope);
+                            if (childToken.Token is ASTLink { IsExporting: true } exLink)
+                                return exLink.Target;
                         }
                     }
                 }
@@ -711,8 +885,8 @@ public class Parser(Stream? errorStream = null)
             {
                 if (tokenCtx.Token is ASTMacroDefine { IsExporting: true } define)
                     exports.Add((define.Name, tokenCtx));
-                if (tokenCtx.Token is ASTMacroExportLinked exportLinked)
-                    exports.Add((exportLinked.Name, tokenCtx));
+                if (tokenCtx.Token is ASTLink { IsExporting: true } link)
+                    exports.Add((link.Target.Name, tokenCtx));
             }
 
             return exports;
@@ -725,14 +899,14 @@ public class Parser(Stream? errorStream = null)
 
             foreach (var tokenCtx in currentScope.Body.Tokens.Concat(currentScope.NewScope!.Body.Tokens))
             {
-                if (tokenCtx.Token is ASTMacroDefine define)
+                if (tokenCtx.Token is NamedEntity entity)
                 {
-                    if (exports.TryFind(ex => ex.name == define.Name, out var export))
+                    if (exports.TryFind(ex => ex.name == entity.Name, out var export))
                         error(export);
                 }
-                if (tokenCtx.Token is LexInvokeBody invoke)
+                if (tokenCtx.Token is LooseScope looseScope)
                 {
-                    var currentNames = GetExports(invoke.Scope);
+                    var currentNames = GetExports(looseScope.Scope);
                     foreach (var (name, _) in currentNames)
                         if (exports.TryFind(ex => ex.name == name, out var export))
                             error(export);
@@ -757,14 +931,18 @@ public class Parser(Stream? errorStream = null)
                         body.Tokens.Add(ctx with { Token = new LexForLoop(TraverseScope(fl.Scope), fl.Count) });
                         break;
 
-                    case ASTParameter param:
+                    case LexMutexBody mb:
+                        body.Tokens.Add(ctx with { Token = new LexMutexBody(TraverseScope(mb.Scope)) });
+                        break;
+
+                    case ASTMacroParameter param:
                         {
                             var (searchScope, localArgs) = FindSearchScope(ctx, scope, param.Depth);
 
                             if (param.Index >= localArgs.Count)
                                 throw Except($"Parameter index {param.Index} out of range, {localArgs.Count} value{(localArgs.Count == 0 ? "" : "s")} were provided", ctx);
 
-                            var paramScope = /*DuplicateLexScope*/(localArgs[param.Index]);
+                            var paramScope = localArgs[param.Index];
 
                             callStack.Add(new(ctx, paramScope, param.Args));
                             var paramBody = TraverseScope(paramScope);
@@ -775,36 +953,64 @@ public class Parser(Stream? errorStream = null)
                         break;
 
                     case ASTMacroInvoke invoke:
-                        var (_, astMacro, macroScope) = FindMacro(ctx, scope, invoke.Name, invoke.Depth) ?? throw Except($"Failed to find macro \"{invoke.Name}\"", ctx);
-
-                        var invokeScope = /*DuplicateLexScope*/(astMacro.Scope);
-
-                        callStack.Add(new(ctx, invokeScope, invoke.Args));
-                        var macroBody = TraverseScope(invokeScope);
-                        callStack.RemoveAt(callStack.Count - 1);
-
-                        ValidateExportedNames(scope, macroBody, ex => throw Except($"Invocation of macro \"{invoke.Name}\" exports macro with duplicate name \"{ex.name}\"", ex.ctx));
-
-                        body.Tokens.Add(ctx with { Token = new LexInvokeBody(invoke.Name, macroBody) });
-                        break;
-
-                    case LexDebugAssertRelative assertRelative:
                         {
-                            var (searchScope, _) = FindSearchScope(ctx, scope, assertRelative.Depth);
-                            while (searchScope.Parent is not null && searchScope.Owner?.Token is not ASTMacroDefine)
-                                searchScope = searchScope.Parent;
-                            
-                            if (searchScope.Owner?.Token is ASTMacroDefine define)
-                                body.Tokens.Add(ctx with { Token = new AST.DebugAssertRelative(define.PutAssertRefId, assertRelative.Offset, assertRelative.Message) });
-                            else
-                                throw Except("The targeted scope does not support relative offsets for the assert operator", ctx);
+                            var entity = FindNamedEntity(ctx, scope, invoke.Name, invoke.Depth) ?? throw Except($"Failed to find name \"{invoke.Name}\"", ctx);
+
+                            if (entity is not ASTMacroDefine macro)
+                                throw Except(@$"Cannot invoke non-macro ""{entity.Name}"" like a macro", ctx);
+
+                            var invokeScope = macro.Scope;
+
+                            callStack.Add(new(ctx, invokeScope, invoke.Args));
+                            var macroBody = TraverseScope(invokeScope);
+                            callStack.RemoveAt(callStack.Count - 1);
+
+                            ValidateExportedNames(scope, macroBody, ex => throw Except($"Invocation of macro \"{invoke.Name}\" exports duplicate name \"{ex.name}\"", ex.ctx));
+
+                            body.Tokens.Add(ctx with { Token = new LexInvokeBody(invoke.Name, macroBody) });
                         }
                         break;
 
-                    case ASTMacroExport export:
-                        var (_, exportedDefine, _) = FindMacro(ctx, scope, export.Name, 0) ?? throw Except($"Failed to find macro \"{export.Name}\"", ctx);
+                    case ASTExport export:
+                        {
+                            var entity = FindNamedEntity(ctx, scope, export.Name, export.Depth) ?? throw Except($"Failed to find name \"{export.Name}\"", ctx);
+                            body.Tokens.Add(ctx with { Token = new ASTLink(entity, true) });
+                        }
+                        break;
 
-                        body.Tokens.Add(ctx with { Token = new ASTMacroExportLinked(export.Name, exportedDefine) });
+                    case ASTFunctionGet funcGet:
+                        {
+                            var entity = FindNamedEntity(ctx, scope, funcGet.Name, funcGet.Depth) ?? throw Except($"Failed to find name \"{funcGet.Name}\"", ctx);
+
+                            if (entity is not ASTFunctionDefine function)
+                                throw Except(@$"Cannot get address non-function ""{entity.Name}""", ctx);
+
+                            functions.TryAdd(function.Id, (function, ctx));
+                            body.Tokens.Add(ctx with { Token = new AST.GetFunction(function.Id) });
+                        }
+                        break;
+                    case ASTSpawnThread spawnThread:
+                        {
+                            var entity = FindNamedEntity(ctx, scope, spawnThread.Name, spawnThread.Depth) ?? throw Except($"Failed to find name \"{spawnThread.Name}\"", ctx);
+
+                            if (entity is not ASTFunctionDefine function)
+                                throw Except(@$"Cannot spawn thread with non-function ""{entity.Name}""", ctx);
+
+                            if (function.ArgTypes.Count != 1 || function.ArgTypes[0] != AST.Type.Cell)
+                                throw Except("Thread function must have exactly one argument, and of type Cell (18)", ctx);
+
+                            if (function.RetType != AST.Type.Void)
+                                throw Except("Thread function must return void (1)", ctx);
+
+                            functions.TryAdd(function.Id, (function, ctx));
+                            body.Tokens.Add(ctx with { Token = new AST.SpawnThread(function.Id) });
+                        }
+                        break;
+
+                    case ASTFunctionDefine funcDefine:
+                        {
+                            body.Tokens.Add(ctx with { Token = new ASTLink(funcDefine, funcDefine.IsExporting) });
+                        }
                         break;
 
                     case BuiltinMacros.ASTInvocation builtin:
@@ -812,6 +1018,7 @@ public class Parser(Stream? errorStream = null)
                         {
                             case BuiltinMacros.Macro.Import:
                                 {
+                                    var projectDirectory = Path.GetDirectoryName(ctx.FilePath);
                                     var filePath = Path.Join(projectDirectory, builtin.Argument);
 
                                     if (!File.Exists(filePath) && (Path.GetExtension(filePath).Length > 0 || !File.Exists(filePath += ".bfpp")))
@@ -825,21 +1032,10 @@ public class Parser(Stream? errorStream = null)
                                     body.Tokens.Add(ctx with { Token = new LexInvokeBody(builtin.Argument, imported) });
                                 }
                                 break;
-
-                            case BuiltinMacros.Macro.AddString:
-                                for (int i = 0; i < builtin.Argument.Length; i++)
-                                {
-                                    var c = builtin.Argument[i];
-                                    if (c > 255)
-                                        throw Except("Characters in added string can't have a code greater than 255", ctx);
-
-                                    body.Tokens.Add(ctx with { Token = new AST.Modify(c) });
-                                    if (i < builtin.Argument.Length - 1)
-                                        body.Tokens.Add(ctx with { Token = new AST.Move(1) });
-                                }
-                                break;
+                            
                             case BuiltinMacros.Macro.EmbedFile:
                                 {
+                                    var projectDirectory = Path.GetDirectoryName(ctx.FilePath);
                                     var filePath = Path.Join(projectDirectory, builtin.Argument);
 
                                     if (!File.Exists(filePath) && (Path.GetExtension(filePath).Length > 0 || !File.Exists(filePath += ".bfpp")))
@@ -851,7 +1047,19 @@ public class Parser(Stream? errorStream = null)
                                 }
                                 break;
                         }
+                        break;
 
+                    case LexDebugAssertRelative assertRelative:
+                        {
+                            var (searchScope, _) = FindSearchScope(ctx, scope, assertRelative.Depth);
+                            while (searchScope.Parent is not null && searchScope.Owner?.Token is not RelativeAssertable)
+                                searchScope = searchScope.Parent;
+
+                            if (searchScope.Owner?.Token is RelativeAssertable ra)
+                                body.Tokens.Add(ctx with { Token = new AST.DebugAssertRelative(ra.EnsureAssertId, assertRelative.Offset, assertRelative.Message) });
+                            else
+                                throw Except("The targeted scope does not support relative offsets for the assert operator", ctx);
+                        }
                         break;
 
                     default:
@@ -864,9 +1072,56 @@ public class Parser(Stream? errorStream = null)
         return TraverseScope(rootScope);
     }
     
-    static AST.Body CreateASTBodyFromLexicalScope(LexicalScope scope)
+    static bool CheckForUnusedCode(LexicalScope scope)
     {
-        static AST.Body TraverseScope(LexicalScope scope)
+        return TraverseScope(scope);
+
+        static bool TraverseScope(LexicalScope scope)
+        {
+            bool returned = false;
+
+            foreach (var ctx in scope.Body.Tokens)
+            {
+                if (ctx.Token is AST.Comment) continue;
+                
+                if (returned)
+                    throw new ParseException(
+                        "Unused Code",
+                        "Zig is annoying so unused code must be removed",
+                        ctx.Start,
+                        ctx.End,
+                        ctx.Source,
+                        ctx.File
+                    );
+
+                switch (ctx.Token)
+                {
+                    case LexWhileLoop wl:
+                        TraverseScope(wl.Scope);
+                        break;
+
+                    case LexForLoop fl:
+                        returned = TraverseScope(fl.Scope);
+                        break;
+
+                    case LexInvokeBody ib:
+                        returned = TraverseScope(ib.Scope);
+                        break;
+
+                    case AST.Return:
+                        returned = true;
+                        break;
+                }
+            }
+            return returned;
+        }
+    }
+    
+    AST.Body CreateASTBodyFromLexicalScope(LexicalScope scope)
+    {
+        return TraverseScope(scope);
+
+        AST.Body TraverseScope(LexicalScope scope)
         {
             var body = new AST.Body();
             foreach (var ctx in scope.Body.Tokens)
@@ -880,7 +1135,10 @@ public class Parser(Stream? errorStream = null)
                         body.Tokens.Add(ctx with { Token = new AST.ForLoop(TraverseScope(fl.Scope), fl.Count) });
                         break;
                     case LexInvokeBody ib:
-                        body.Tokens.Add(ctx with { Token = new AST.InvokeBody(ib.Name, TraverseScope(ib.Scope), ib.Scope.Owner?.Token is ASTMacroDefine d ? d.assertRefId : null) });
+                        body.Tokens.Add(ctx with { Token = new AST.InvokeBody(ib.Name, TraverseScope(ib.Scope), (ib.Scope.Owner?.Token as ASTMacroDefine)?.AssertId) });
+                        break;
+                    case LexMutexBody mb:
+                        body.Tokens.Add(ctx with { Token = new AST.MutexBody(TraverseScope(mb.Scope)) });
                         break;
                     default:
                         body.Tokens.Add(ctx);
@@ -889,7 +1147,6 @@ public class Parser(Stream? errorStream = null)
             }
             return body;
         }
-        return TraverseScope(scope);
     }
     
     static AST.Body CompressOperations(AST.Body ast)
@@ -923,7 +1180,7 @@ public class Parser(Stream? errorStream = null)
 
                     case AST.Modify modify:
                         if (GetLast<AST.Modify>() is AST.Modify lastModify)
-                            RePush(new AST.Modify(modify.Amount + lastModify.Amount));
+                            RePush(new AST.Modify((modify.Amount + lastModify.Amount) % 256));
                         else
                             newBody.Tokens.Add(ctx);
                         break;
@@ -968,7 +1225,8 @@ public class Parser(Stream? errorStream = null)
                         break;
 
                     case ASTMacroDefine: break;
-                    case ASTMacroExport: break;
+                    case ASTExport: break;
+                    case ASTFunctionDefine: break;
                     
                     case AST.Modify modify:
                         if (modify.Amount != 0)

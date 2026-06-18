@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "BrainfuckPlusPlus": {
+      "commandName": "Project",
+      "commandLineArgs": "build ../project",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}

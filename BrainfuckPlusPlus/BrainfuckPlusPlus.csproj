@@ -2,9 +2,12 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AssemblyName>brainfuck++</AssemblyName>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,12 +15,15 @@
     <EmbeddedResource Include="template\build.zig.zon" />
     <EmbeddedResource Include="template\template.zig" />
     <EmbeddedResource Include="template\zig-x86_64-windows-0.15.2.zip" />
+    <EmbeddedResource Include="example\project.toml" />
+    <EmbeddedResource Include="example\main.bfpp" />
+    <EmbeddedResource Include="example\reference.md" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
     <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
+    <PackageReference Include="System.CommandLine" Version="2.0.8" />
     <PackageReference Include="Tomlyn" Version="2.3.2" />
   </ItemGroup>
-
 </Project>

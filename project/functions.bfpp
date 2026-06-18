@@ -23,15 +23,15 @@ $import("utils.bfpp")
     <<[[-]<]<[<]> @0
 )
 
-# 0 = ret type, 1 = arg types
+# 0 = caller id, 1 = ret type, 2 = arg types
 &create_caller (
     @0
-    $0>$1
+    +$0>$1>$2
     <[<]>
-    %&
+    @.8%&
     [>]
-    <[[-]<]
-    >@0
+    < [[-]<] >
+    @0
 )
 
 &set_dll (
@@ -59,7 +59,7 @@ $import("utils.bfpp")
     $0(>8)>32
     @0
     # call with extern index
-    $1 %$ [-]
+    +$1 %$ [-]
     # return function ptr to storage
     >
     $move_8
@@ -75,27 +75,27 @@ $import("utils.bfpp")
 &ptr (+12)
 
 &&setup_functions (
-    $create_caller ($void) ()                                   # 0
-    $create_caller ($int)  ()                                   # 1
-    $create_caller ($void) ($ptr)                               # 2
-    $create_caller ($int)  ($ptr)                               # 3
-    $create_caller ($ptr)  ($ptr)                               # 4
-    $create_caller ($ptr)  ($int>$int>$ptr>$ptr>$ptr)           # 5
-    $create_caller ($void) ($float>$float>$float>$float)        # 6
-    $create_caller ($void) ($int)                               # 7
-    $create_caller ($ptr)  ($void)                              # 8
-    $create_caller ($ptr)  ($ptr>$int>$int>$ptr>$int>$int>$ptr) # 9
-    $create_caller ($int)  ($ptr>$ptr>$int>$ptr>$ptr)           # 10
-    $create_caller ($int)  ($int)                               # 11
-    $create_caller ($void) ($int>$int>$ptr>$ptr)                # 12
-    $create_caller ($void) ($int>$int>$ptr)                     # 13
-    $create_caller ($void) ($int>$int)                          # 14
-    $create_caller ($int)  ($int>$ptr)                          # 15
-    $create_caller ($void) ($ptr>$ptr>$ptr)                     # 16
-    $create_caller ($void) ($int>$int>$int)                     # 17
-    $create_caller ($void) ($int>$ptr)                          # 18
-    $create_caller ($void) ($int>$int>$int>$int)                # 19
-    $create_caller ($int)  ($ptr>$int)                          # 20
+    $create_caller (+0) ($void) ()
+    $create_caller (+1) ($int)  ()
+    $create_caller (+2) ($void) ($ptr)
+    $create_caller (+3) ($int)  ($ptr)
+    $create_caller (+4) ($ptr)  ($ptr)
+    $create_caller (+5) ($ptr)  ($int>$int>$ptr>$ptr>$ptr)
+    $create_caller (+6) ($void) ($float>$float>$float>$float)
+    $create_caller (+7) ($void) ($int)
+    $create_caller (+8) ($ptr)  ($void)
+    $create_caller (+9) ($ptr)  ($ptr>$int>$int>$ptr>$int>$int>$ptr)
+    $create_caller (+10) ($int)  ($ptr>$ptr>$int>$ptr>$ptr)
+    $create_caller (+11) ($int)  ($int)
+    $create_caller (+12) ($void) ($int>$int>$ptr>$ptr)
+    $create_caller (+13) ($void) ($int>$int>$ptr)
+    $create_caller (+14) ($void) ($int>$int)
+    $create_caller (+15) ($int)  ($int>$ptr)
+    $create_caller (+16) ($void) ($ptr>$ptr>$ptr)
+    $create_caller (+17) ($void) ($int>$int>$int)
+    $create_caller (+18) ($void) ($int>$ptr)
+    $create_caller (+19) ($void) ($int>$int>$int>$int)
+    $create_caller (+20) ($int)  ($ptr>$int)
 
     $set_dll (+"glfw3")
 

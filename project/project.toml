@@ -1,0 +1,16 @@
+main="test.bfpp"
+
+outputs=["zig", "bf"]
+
+[common]
+
+[zig]
+args=["-Dtarget=x86_64-windows", "-Dcpu=baseline"]
+cell_size=2
+
+[bf]
+include_debug_operators=false
+include_comments=false
+
+[launch]
+args=["hello", "world"]

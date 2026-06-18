@@ -1,0 +1,28 @@
+
+&*foo~2,4~4(
+    >64
+    $*0 # get ptr to 1st arg \#
+    ~ # dereference ptr
+    >8
+    $! # return value
+)
+
++4>+2>+4 <2 # set types for caller
+%& # create caller
+[>]<[[-]<]> # delete types for caller
+
+# set addresses for function return
+>8 * [-] +32
+>8 * [-] +32+8
+>8 * [-] +32+16
+<24
+
+>40 +12 <40 # set 1st arg
+
+$*foo # get ptr to foo
+
+< %$ > # call foo
+
+>32 @. # read cell at the return location
+# if the value read is 12, then the function successfully
+# returned it's first argument

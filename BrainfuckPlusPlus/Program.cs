@@ -1,62 +1,36 @@
 ﻿
 
+using System.Reflection;
+using Brainfuck.Modes;
+
 namespace Brainfuck;
 
 public static class Program
 {
+
     public static async Task Main(string[] args)
     {
-        var option = ProgramSettings.GetArguments(args);
-        if (option is null) return;
-        
-        // if (option.IsLSP)
-        // {
-        //     await RunLSPAsync();
-        //     return;
-        // }
+        string? modeKeyword = args.Length > 0 ? args[0] : null;
 
-        const string path = "../../../../project/program.bfpp";
+        Mode? mode = Mode.GetModes().FirstOrDefault(mode => mode.Keyword == modeKeyword);
 
-        if (!File.Exists(path))
+        if (mode is null)
         {
-            Console.WriteLine("Provided file does not exist");
-            return;
+            Console.WriteLine("""
+            Usage: brainfuck++ <command> [options]
+
+            Commands:
+            init    Initialize a project directory
+            build   Build a project
+
+            Run 'brainfuck++ help <command>' for more information on any command.
+            """);
+        }
+        else
+        {
+            mode.Execute(args.AsSpan()[1..]);
         }
 
-        var fullPath = Path.GetFullPath(path);
-
-        var settings = new TemplateSettings()
-        {
-            projectDir = Path.GetDirectoryName(fullPath)!,
-            projectName = Path.GetFileNameWithoutExtension(fullPath)!,
-            launchAfterBuild = true,
-            releaseMode = TemplateSettings.ReleaseMode.Debug,
-            extraArgs = new() { { "compact-bf", "" } },
-            includeComments = false
-
-            // releaseMode = TemplateSettings.ReleaseMode.ReleaseFast,
-            // includeComments = false
-        };
-
-        if (new Parser().Parse(fullPath) is not AST ast)
-        {
-            Console.WriteLine("Build Failed");
-            return;
-        }
-
-        Action? runCommand = null;
-
-        if (!ZigTemplater.Template(ast, settings, ref runCommand))
-        {
-            Console.WriteLine("Zig Build Failed");
-        }
-
-        // if (!BfTemplater.Template(ast, settings, ref runCommand))
-        // {
-        //     Console.WriteLine("Bf Build Failed");
-        // }
-
-        runCommand?.Invoke();
     }
     
     // static async Task RunLSPAsync()

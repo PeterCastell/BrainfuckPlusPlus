@@ -18,7 +18,6 @@ public static class BuiltinMacros
     public enum Macro
     {
         [MacroName("import")] Import,
-        [MacroName("add_string")] AddString,
         [MacroName("embed_file")] EmbedFile
     }
 }
