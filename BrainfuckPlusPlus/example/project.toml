@@ -1,8 +1,9 @@
 # The relative path to the main file / entry point.
 main="main.bfpp"
 
-# All outputs in this array will be generated on build.
-outputs=["zig", "bf"]
+# All outputs listed will be generated on build.
+# Allowed values: "zig", "bf"
+outputs=["zig"]
 
 ## All options below are optional and set here to the default values.
 

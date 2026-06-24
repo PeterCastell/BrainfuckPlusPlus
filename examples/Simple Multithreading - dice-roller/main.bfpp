@@ -1,5 +1,12 @@
 
-&print_and_clear ( .[-]>[.>]<[[-]<] )
+# Prints and clears a null terminated string.
+# String must be at least one character long.
+&print_and_clear (
+    .[-] # Print and clear first digit
+    >[.>] # Print all remaining characters
+    <[[-]<] # Return to start, clearing along the way.
+    @$ # Assert macro ends where it started. 
+)
 
 +"Enter a dice roll like \"3d10\"> "
 $print_and_clear
@@ -15,8 +22,9 @@ $print_and_clear
 # Set if barrier
 >>+<<
 
-# $0 = sub termination char
-# Leaves total in cell 4
+# Reads a number from input untill a given termination character.
+# $0 = Subtract termination char.
+# Leaves total in cell 4.
 &read_digits (
     # Set loop bit 
     +
@@ -34,10 +42,9 @@ $print_and_clear
             # Multiply total by 10
             >4 [->+<]
             > [-<+10>]
-            # Add character digit to total
             <2
-            -'0'
-            [->+<]
+            -'0' # Convert input from ascii to number
+            [->+<] # Add input number to dice total
             <2
             @1
         ]
@@ -48,6 +55,7 @@ $print_and_clear
         # remove character in read temp
         >3[-]<3
     ]
+    @$
 )
 
 $read_digits(-'d')
@@ -144,6 +152,10 @@ $read_digits(-'\n')
 }
 @17
 
+>
++"Dice Total: "
+$print_and_clear
+<
 
 # if 100's digit is nonzero
 [

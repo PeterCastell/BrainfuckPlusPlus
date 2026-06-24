@@ -80,7 +80,9 @@ public static class ZigTemplater
         
         void CreateFile(string fileName)
         {
-            using var fileStream = File.Create(Path.Combine(localZigPath, fileName));
+            var path = Path.Combine(localZigPath, fileName);
+            if (File.Exists(path)) return;
+            using var fileStream = File.Create(path);
             using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
             resourceStream.CopyTo(fileStream);
         }

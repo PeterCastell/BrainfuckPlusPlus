@@ -5,7 +5,6 @@
 * [Extern Operators](#extern-operators)
 * [Multithreading Operators](#multithreading-operators)
 * [Table of Types](#table-of-types)
-* [Project Configuration](#project-configuration)
 
 # Brainfuck Basics
 
@@ -828,72 +827,3 @@ The **Mutex Block** operator is a caret before a pair of curly brackets `^{ }`. 
 |20|cell
 
 Cell is an unsigned integer the size of a cell on the memory tape.
-
-## Project Configuration
-
-Default project.toml file:
-```toml
-# The relative path to the main file / entry point.
-main="main.bfpp"
-
-# All outputs in this array will be generated on build.
-outputs=["zig", "bf"]
-
-## All options below are optional and set here to the default values.
-
-# options in [common] apply to all outputs.
-# These options can be added to the other
-# sections to override for individual outputs.
-[common]
-include_comments = true
-include_formatting = true
-
-# Options for generating a zig project.
-[zig]
-args=[] # Args for the zig compiler
-build_after_template = true
-launch_after_build = true
-cell_size = 1 # in bytes
-#   Certain failures which would stop execution by default
-#   can be ignored. Failures would simply not modify the tape.
-# ignore_error = [
-#     "findExternFunction",
-#     "createExternCaller"
-# ]
-
-# Options for outputing a single processed .bfpp file.
-[bf]
-include_debug_operators=true
-compact_operators=true # use numerable operators and for loops
-
-[launch]
-# Args for the compiled output
-args=[]
-```
-
-### Outputs
-Available values for `outputs`:
-|Name|Description
-|---|---
-|zig|The main output type. Creates a zig project which can be compiled into a binary.
-|bf|Consolidates the project into a single .bfpp file with all macros inlined and other syntax adjustments.
-
-### Common Formatting
-`include_comments` keeps the comments from the source `.bfpp` file and also adds additional comments to clarify obfuscated parts (e.g. function definitions and macro invocations are labeled). \
-`include_formatting` adds whitespace to the output to make it more readable. Removing whitespace only really saves file size with the **bf** output. \
-Zig does not support enabling `include_comments` without also enabling `include_formatting`.
-
-### Cell Size
-Throughout the reference document, cells are treated interchangably with bytes. This is accurate by default but when the `cell_size` is set differently, many of these descriptions become inaccurate.
-Some parts of the language change when `cell_size` is set to a different number of bytes, and some don't change when they seem like they would:
-* Any operator that writes one byte to the tape writes to the low byte.
-* The **Print** operator `.` only reads the low byte of the current cell.
-* The **Read** operator `,` only writes one byte to the tape.
-* The **Dereference** operator `~` only writes one byte from the memory address to the tape.
-* Non-byte types read from the tape only use as many cells as needed. e.g. Returning an i32 when cell_size is 2 will read the entirety of two cells, not one byte from four cells.
-* Cell offsets within operators are reduced. e.g. Using the **Dereference** operator when cell_size is 4 will write the value to cell +2 instead of cell +8. This applies heavily to the **Call Extern Func** operator as well.
-
-`cell_size` can only be set to 1, 2, 4, or 8.
-
-### Compact Operators
-When building the bf output, changing `compact_operators` to false produces code as close to standard Brainfuck as possible. Numerable operators will be expanded (e.g. `+5` → `+++++`) and for loops will be flattened (e.g. `{3 +> }` → `+>+>+>`).

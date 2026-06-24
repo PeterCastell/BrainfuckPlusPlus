@@ -502,7 +502,7 @@ const Context = struct {
         const result = readTapeValue(*anyopaque)(self.tapeCursor + 1 + ptrCellSize);
         var args: [256]*anyopaque = undefined;
 
-        readTape(u8)(self.tapeCursor + 1 + 2 * ptrCellSize, @as(*[256 * 8]u8, @ptrCast(&args)));
+        readTapeBytes(self.tapeCursor + 1 + 2 * ptrCellSize, @as(*ByteSpan([64]*anyopaque), @ptrCast(&args)));
 
         func.caller.call(funcPtr, @ptrCast(args[0..]), result);
     }
@@ -578,19 +578,6 @@ const Context = struct {
         }
     }
 
-    // reads into buffer until end is reached
-    pub fn readTape(comptime T: type) fn (start: usize, buf: []T) void {
-        return struct {
-            fn inner(start: usize, buf: []T) void {
-                for (0..buf.len) |i| {
-                    const cellVal = tapeAt((start + i) % TapeLength).*;
-                    buf[i] = @truncate(cellVal);
-                }
-            }
-        }.inner;
-    }
-
-    // reads a single value from the tape
     pub fn readTapeValue(comptime T: type) fn (start: usize) T {
         return struct {
             fn inner(start: usize) T {
@@ -615,18 +602,6 @@ const Context = struct {
         }
     }
 
-    // sets the tape tp the buffer's contents
-    fn writeTape(comptime T: type) fn (start: usize, buf: []const T) void {
-        return struct {
-            fn inner(start: usize, buf: []const T) void {
-                for (0..buf.len) |i| {
-                    tapeAt((start + i) % TapeLength).* = @truncate(buf[i]);
-                }
-            }
-        }.inner;
-    }
-
-    // writes a single value to the tape
     pub fn writeTapeValue(comptime T: type) fn (start: usize, val: T) void {
         return struct {
             fn inner(start: usize, val: T) void {
@@ -635,7 +610,6 @@ const Context = struct {
         }.inner;
     }
 
-    // adds the buffer onto the tape
     fn writeTapeAdd(comptime T: type) fn (start: usize, buf: []const T) void {
         return struct {
             fn inner(start: usize, buf: []const T) void {
@@ -645,7 +619,7 @@ const Context = struct {
             }
         }.inner;
     }
-    // subtracts the buffer onto the tape
+
     fn writeTapeSub(comptime T: type) fn (start: usize, buf: []const T) void {
         return struct {
             fn inner(start: usize, buf: []const T) void {
