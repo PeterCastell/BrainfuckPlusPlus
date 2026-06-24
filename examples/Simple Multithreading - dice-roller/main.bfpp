@@ -90,24 +90,26 @@ $read_digits(-'\n')
     >3
     [
         ^{
-            !2
-            # increment random number
+            # Wait 2 milliseconds
+            !2 
+            
+            # Increment random number
             >3 +
 
-            # add roll padding
+            # Add roll padding to random number and temp space (5)
             <2 [->+>+<<]
 
-            # if non-zero, subtract roll padding
+            # If non-zero, subtract roll padding
             >2 [
                 < [->-<<+>]
-                # end at cell 7 (zero)
+                # End at cell 7 (zero)
                 >2 @7
             ]
 
-            # correct cursor position
+            # Correct the cursor position
             >[<]< @6
 
-            # restore roll padding
+            # Restore roll padding from temp space (5)
             < [-<+>]
 
             <2 @3
@@ -116,6 +118,7 @@ $read_digits(-'\n')
 )
 
 >6
+# Loop for the number of dice to be rolled
 [
     -
     # Print prompt
@@ -127,7 +130,7 @@ $read_digits(-'\n')
     # copy random value into dice total
     <7 ^{
         # add random number plus one to dice total
-        >3 @.+[->+>4+<5]
+        >3 +[->+>4+<5]
         > - [-<+>]
     }
     >2
@@ -142,12 +145,14 @@ $read_digits(-'\n')
 # 17    100's place
 # all inbetween space is for the divmod
 
+# Divide total to get the number for each digit
 {2
     >+10<
     # Divmod (credit https://esolangs.org/wiki/Brainfuck_algorithms#Divmod)
     # I have no idea how this works
+    # In: n, d
     [->-[>+>>]>[+[-<+>]>+>>]<<<<<]
-    # >0 d-n%d n%d n/d
+    # Out: 0, d-n%d, n%d, n/d
     >3
 }
 @17
@@ -159,8 +164,11 @@ $print_and_clear
 
 # if 100's digit is nonzero
 [
-    +'0'.[-] # print 100's digit
-    < +'0'.[-] > # print 10's digit
+    # print 100's digit
+    +'0'.[-]
+    
+    # print 10's digit and clear so next case won't trigger
+    < +'0'.[-] >
 ]
 
 # print 10's digit if nonzero
