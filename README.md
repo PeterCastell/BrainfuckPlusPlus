@@ -2,8 +2,8 @@
 Compiles and runs brainfuck++ projects
 
 # Developing a project
-See [](getting started) on the wiki.
-See [](examples) in the repo.
+See [getting started](https://github.com/PeterCastell/BrainfuckPlusPlus/wiki/Getting-Started) on the wiki.
+See [examples](https://github.com/PeterCastell/BrainfuckPlusPlus/tree/main/examples) in the repo.
 
 # Objective
 Using brainfuck is not meant to be easy and it's not my goal to change that. Brainfuck++ has two core rules/goals.
