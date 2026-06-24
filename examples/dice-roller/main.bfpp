@@ -1,0 +1,158 @@
+
+&print_and_clear ( .[-]>[.>]<[[-]<] )
+
++"Enter a dice roll like \"3d10\"> "
+$print_and_clear
+
+# Memory Layout
+# 0     read loop bit
+# 1     temp space
+# 2     if barrier
+# 3     read temp
+# 4     digit total
+# 5     temp space
+
+# Set if barrier
+>>+<<
+
+# $0 = sub termination char
+# Leaves total in cell 4
+&read_digits (
+    # Set loop bit 
+    +
+    [
+        # Clear loop bit
+        [-]
+
+        # Read character and
+        # copy to loop bit and read temp 
+        >, [-<+>3+<2]
+
+        # Subtract termination character from loop bit
+        < $0
+        [ # If character isn't barrier
+            # Multiply total by 10
+            >4 [->+<]
+            > [-<+10>]
+            # Add character digit to total
+            <2
+            -'0'
+            [->+<]
+            <2
+            @1
+        ]
+        # Correct cursor position with if barrier
+        >[<]<
+        @0
+
+        # remove character in read temp
+        >3[-]<3
+    ]
+)
+
+$read_digits(-'d')
+
+# move total to second storage
+>4 [->5+<5] <4
+
+$read_digits(-'\n')
+
+# Phase 2 Memory Layout
+# 3     Ids
+# 4     roll padding
+# 5     temp space
+# 6     random number
+# 7     temp space
+# 8     barrier bit
+# 9     dice count
+# 10    temp space
+# 11    dice total
+
+# Create roll padding
+>4 [->+<]
+> [-<->]
+
+# Set barrier bit
+>3 +
+
+# create mutex and thread
+<5 + ^& ^$randomizer
+
+&*randomizer~1~20 (
+    >3
+    [
+        ^{
+            !2
+            # increment random number
+            >3 +
+
+            # add roll padding
+            <2 [->+>+<<]
+
+            # if non-zero, subtract roll padding
+            >2 [
+                < [->-<<+>]
+                # end at cell 7 (zero)
+                >2 @7
+            ]
+
+            # correct cursor position
+            >[<]< @6
+
+            # restore roll padding
+            < [-<+>]
+
+            <2 @3
+        }
+    ]
+)
+
+>6
+[
+    -
+    # Print prompt
+    >3 +"Press Enter to roll"
+    $print_and_clear
+    
+    # wait until input
+    <2 ,[-]
+    # copy random value into dice total
+    <7 ^{
+        # add random number plus one to dice total
+        >3 @.+[->+>4+<5]
+        > - [-<+>]
+    }
+    >2
+    @9
+]
+
+>2
+
+# Phase 3 Memory Layout
+# 13    1's place
+# 16    10's place
+# 17    100's place
+# all inbetween space is for the divmod
+
+{2
+    >+10<
+    # Divmod (credit https://esolangs.org/wiki/Brainfuck_algorithms#Divmod)
+    # I have no idea how this works
+    [->-[>+>>]>[+[-<+>]>+>>]<<<<<]
+    # >0 d-n%d n%d n/d
+    >3
+}
+@17
+
+
+# if 100's digit is nonzero
+[
+    +'0'.[-] # print 100's digit
+    < +'0'.[-] > # print 10's digit
+]
+
+# print 10's digit if nonzero
+< [ +'0'.[-] ]
+
+# print 1's digit
+<3 +'0'.

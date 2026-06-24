@@ -29,7 +29,8 @@ public class HelpMode : Mode
                 Builds and runs the project.
 
                 Flags:
-                -redirectLaunch     Print executable location and desired cwd
+                -redirectLaunch     Print project executable options instead of launching.
+                -idePipe=name       Send build log and exit event to named pipe. Supports exit command.
 
                 Finds a .toml or .bfpp file in the current working directory.
                 A path to search in, a .toml file, or a .bfpp file may be provided as [path].

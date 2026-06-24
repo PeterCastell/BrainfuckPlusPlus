@@ -14,7 +14,7 @@ public static class BfTemplater
         public bool compactOperators { get; set; } = true;
     }
     
-    public static bool Template(AST ast, ProjectSettings projSettings)
+    public static bool Template(BuildIO IO, AST ast, ProjectSettings projSettings)
     {
         var bfSettings = projSettings.bfSettings;
 
@@ -224,7 +224,7 @@ public static class BfTemplater
         EmitGlobals(fileStream);
         EmitBody(ast.body, 0, fileStream);
 
-        Console.WriteLine("Bf Build Completed");
+        IO.WriteLog("Bf Build Completed");
         
         return true;
     }

@@ -1,0 +1,54 @@
+# Memory Layout
+# 0     input loop bit
+# 1     input cell
+# 2     sum of all characters
+
+&print_and_clear ( [.>]<[[-]<]> )
+
+# Print initial promt
++"What is your yes-or-no question?\n"
+$print_and_clear
+
+# Read input until a newline it reached
++
+[
+    # Clear loop bit
+    [-]
+    # Take input and copy to the loop bit and character sum
+    > , [-<+>>+<] <
+    # Subtract newline from the loop bit
+    -'\n'
+    
+    # Loop will continue if input was not a newline
+]
+
+# Stage 2 memory layout
+# 0     one bit
+# 1     pairity of characters
+# 2     sum of characters
+
+# Set one bit
++
+
+# Determine if the cell is even or odd.
+# Multiplying the sum of characters by 128 will limit the outcome to 0 or 128
+>> [+<+128>]
+
+# if-else over pairity bit
+<
+[ # if odd
+    [-]
+    # clear one bit so the else case doesn't trigger
+    <->
+    
+    +"yes"
+    $print_and_clear
+]
+<
+[ # else
+    # clear on bit
+    -
+
+    +"no"
+    $print_and_clear
+]

@@ -1,0 +1,3 @@
+main="main.bfpp"
+
+outputs=["zig"]

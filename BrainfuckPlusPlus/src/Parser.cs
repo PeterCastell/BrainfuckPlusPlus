@@ -7,9 +7,8 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 
-public class Parser(Stream? errorStream = null)
+public class Parser(BuildIO IO)
 {
-    readonly StreamWriter errorWriter = new(errorStream ?? Console.OpenStandardOutput());
     readonly Dictionary<string, (LexicalScope scope, bool hasReturn)> parsedFiles = [];
 
     readonly ConcurrentDictionary<string, AST.FileEmbed> fileEmbeds = [];
@@ -125,9 +124,8 @@ public class Parser(Stream? errorStream = null)
         }
         catch (Exception e)
         {
-            errorWriter.WriteLine("File Error");
-            errorWriter.WriteLine(e.Message);
-            errorWriter.Flush();
+            IO.WriteErr("File Error");
+            IO.WriteErr(e.Message);
             return null;
         }
         
@@ -152,10 +150,9 @@ public class Parser(Stream? errorStream = null)
         }
         catch (ParseException ex)
         {
-            errorWriter.WriteLine($"Error (line {ex.start.Row}, col {ex.start.Column} in {ex.filename}): {ex.message}");
-            errorWriter.WriteLine(GetLinePreview(ex.start, ex.end, ex.source));
-            errorWriter.WriteLine(ex.afterMessage);
-            errorWriter.Flush();
+            IO.WriteErr($"Error (line {ex.start.Row}, col {ex.start.Column} in {ex.filename}): {ex.message}");
+            IO.WriteErr(GetLinePreview(ex.start, ex.end, ex.source));
+            IO.WriteErr(ex.afterMessage);
             
             return null;
         }
@@ -579,7 +576,7 @@ public class Parser(Stream? errorStream = null)
                     break;
                 case Token.Type.OpenForLoop:
                     PushContext(BodyType.For,
-                        ctx => Push(token, new LexForLoop(ctx, GetNextNumber64Or1(ref end)), end)
+                        ctx => Push(token, new LexForLoop(ctx, GetNextByteOrCharOr1(ref end)), end)
                     );
                     break;
                 case Token.Type.OpenMutex:

@@ -82,6 +82,14 @@ A simple demo to echo text back to the terminal.
 [.>] # print and move along each character
 ```
 
+### Conventions
+The [Brainfuck wiki page](https://esolangs.org/wiki/Brainfuck#Extensions) specifies conventions on how interpreters should behave. This sections goes over adherance tho those conventions.
+* Memory - All conventions are followed.
+* IO - Line buffered by default; OS newlines are converted to `10`, but not vice versa.
+* EOF - Cell remains unchanged on EOF.
+* Character set - Uses native character set.
+* 
+
 # Brainfuck++
 
 The Brainfuck++ parser is able to parse any* standard Brainfuck program while also providing aditional syntax and operators to make more programs possible. \
@@ -104,7 +112,7 @@ Works with `+`, `-`, `<`, and `>`.
 >12 +72 <24
 ```
 ### Modifying by Characters and Strings
-Instead of looking up keycodes, the characters can be written directly in single quotes `' '` after `+` and `-` operators. Using double quotes `" "` allows entire strings to be added or subtracted from the tape at once. Special characters can be written with a backslash `\` followed by an escape code (see table below).
+Instead of looking up keycodes, the characters can be written directly in single quotes `' '` after `+` and `-`. Using double quotes `" "` allows entire strings to be added or subtracted from the tape at once. Special characters can be written with a backslash `\` followed by an escape code (see table below).
 ```bfpp
 +'w' # Adds ascii code for 'w' (same as +119)
 -'w' # Same for subtracting
@@ -126,6 +134,7 @@ Brainfuck++ adds several simple operators, similar to those of standard Brainfuc
 
 ### For loops
 Groups of operators can be repeated several times by using for loops. They are defined with a matching pair of curly brackets `{ }`, with an optional number after the first bracket to define how many times it should repeat.
+For loops also support character amounts with single quotes `' '`.
 ```bfpp
 # Repeats 3 times
 {3
@@ -133,6 +142,9 @@ Groups of operators can be repeated several times by using for loops. They are d
     .
 }
 # Prints "!Bc"
+
+# Repeats 65 times
+{'A' + }
 
 ```
 Like the numerable operators, omitting the number defaults to one, executing the contents once. This can be useful for creating scopes (see [Macros](#macros)).
@@ -885,7 +897,3 @@ Some parts of the language change when `cell_size` is set to a different number 
 
 ### Compact Operators
 When building the bf output, changing `compact_operators` to false produces code as close to standard Brainfuck as possible. Numerable operators will be expanded (e.g. `+5` → `+++++`) and for loops will be flattened (e.g. `{3 +> }` → `+>+>+>`).
-
-### IDE Integration - Launch Redirection
-The `build` command in the terminal supports the flag `-redirectLaunch`, which stops the compiler from launching the project as a child process and insteads prints a launch code to the terminal. This is meant for an IDE to read so that it can manage the project executable directly. The code is only sent if `launch_after_build = true`.\
-The launch code forwards the executable path, the directory it should be launched in, and the launch args from the project settings. This looks like `-Launch {"exe":"path/to/executable","cwd":"path/to/project","args":[]}`

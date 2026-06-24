@@ -1,13 +1,10 @@
 
 
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.VisualBasic;
 using Tomlyn;
-using Tomlyn.Model;
 using Tomlyn.Serialization;
 
 namespace Brainfuck.Modes;
@@ -18,6 +15,7 @@ public class BuildMode : Mode
     public class CommandSettings
     {
         public bool redirectLaunch = false;
+        public int? idePort = null;
     }
     public string Keyword => "build";
     public void Execute(ReadOnlySpan<string> args)
@@ -30,6 +28,16 @@ public class BuildMode : Mode
         {
             if (arg.StartsWith('-'))
             {
+                if (arg.StartsWith("-idePort="))
+                {
+                    var portStr = arg["-idePort=".Length..];
+                    if (!int.TryParse(portStr, out var port))
+                    {
+                        Console.Error.WriteLine("idePort must be a number");
+                    }
+                    cmdSettings.idePort = port;
+                    continue;
+                }
                 switch (arg)
                 {
                     case "-redirectLaunch":
@@ -48,22 +56,28 @@ public class BuildMode : Mode
             else
                 path = arg;
         }
+        
+        using BuildIO IO = cmdSettings.idePort switch
+        {
+            int port => new TCPBuildIO(port),
+            null => new StandardBuildIO()
+        };
 
         if (path is null)
         {
-            var projFile = FindProjectFile("");
+            var projFile = FindProjectFile(IO, "");
             if (projFile is null) return;
-            projSettings = LoadProject(projFile);
+            projSettings = LoadProject(IO, projFile);
         }
         else if (Directory.Exists(path))
         {
-            var projFile = FindProjectFile(args[0]);
+            var projFile = FindProjectFile(IO, args[0]);
             if (projFile is null) return;
-            projSettings = LoadProject(projFile);
+            projSettings = LoadProject(IO, projFile);
         }
         else
         {
-            projSettings = LoadProject(args[0]);
+            projSettings = LoadProject(IO, args[0]);
         }
 
         if (projSettings is null)
@@ -74,50 +88,48 @@ public class BuildMode : Mode
 
         if (!File.Exists(mainPath))
         {
-            Console.WriteLine(@$"Main file does not exist ""{mainPath}""");
+            IO.WriteLog(@$"Main file does not exist ""{mainPath}""");
             return;
         }
-
-        if (new Parser().Parse(mainPath) is not AST ast)
+        
+        if (new Parser(IO).Parse(mainPath) is not AST ast)
         {
-            Console.Error.WriteLine("Build Failed");
+            IO.WriteErr("Build Failed");
             return;
         }
 
-        Console.WriteLine("Templating...");
+        IO.WriteLog("Templating...");
 
         Func<string>? outputExecutable = null;
 
         if (projSettings.emitTypes.Contains(ProjectSettings.EmitType.Zig))
         {
-            if (!ZigTemplater.Template(ast, projSettings, ref outputExecutable))
+            if (!ZigTemplater.Template(IO, ast, projSettings, ref outputExecutable))
             {
-                Console.Error.WriteLine("Zig Build Failed");
+                IO.WriteErr("Zig Build Failed");
             }
         }
 
         if (projSettings.emitTypes.Contains(ProjectSettings.EmitType.Bf))
         {
-            if (!BfTemplater.Template(ast, projSettings))
+            if (!BfTemplater.Template(IO, ast, projSettings))
             {
-                Console.Error.WriteLine("Bf Build Failed");
+                IO.WriteErr("Bf Build Failed");
             }
         }
 
         if (outputExecutable is not null)
         {
-            // Compiler subsystem returns process after starting the compiled result.
             var executablePath = outputExecutable.Invoke();
 
             if (cmdSettings.redirectLaunch)
             {
-                string launchCommand = JsonSerializer.Serialize(new LaunchCommand()
+                IO.SendLaunchRedirect(new LaunchCommand()
                 {
                     exe = executablePath,
                     cwd = projSettings.projectDir,
                     args = projSettings.launchSettings.args
                 });
-                Console.WriteLine("-Launch " + launchCommand);
                 return;
             }
             var startInfo = new ProcessStartInfo(executablePath) { WorkingDirectory = projSettings.projectDir };
@@ -126,13 +138,12 @@ public class BuildMode : Mode
             var proc = Process.Start(startInfo);
             if (proc is null)
             {
-                Console.Error.WriteLine("Failed to run build output");
+                IO.WriteLog("Failed to run build output");
                 return;
             }
 
-            Console.CancelKeyPress += (_, e) =>
+            IO.ShouldExit += () =>
             {
-                e.Cancel = true;
                 if (!proc.HasExited)
                     proc.Kill(entireProcessTree: true);
             };
@@ -140,7 +151,9 @@ public class BuildMode : Mode
             proc.WaitForExit();
         }
     }
-    static string? FindProjectFile(string folder)
+
+
+    static string? FindProjectFile(BuildIO IO, string folder)
     {
         var files = Directory.GetFiles(Path.Combine(Directory.GetCurrentDirectory(), folder));
         var tomlFiles = files.Where(file => Path.GetExtension(file) == ".toml").ToArray();
@@ -151,7 +164,7 @@ public class BuildMode : Mode
             var project = tomlFiles.FirstOrDefault(file => Path.GetFileName(file) == "project.toml");
             if (project is null)
             {
-                Console.WriteLine("""
+                IO.WriteErr("""
                 Failed to disambuguate .toml files.
                 Multiple found and none called "project.toml".
                 """);
@@ -168,7 +181,7 @@ public class BuildMode : Mode
             var project = tomlFiles.FirstOrDefault(file => Path.GetFileName(file) == "main.bfpp");
             if (project is null)
             {
-                Console.WriteLine("""
+                IO.WriteErr("""
                 Failed to disambuguate .bfpp files.
                 Multiple found and none called "program.bfpp".
                 """);
@@ -182,7 +195,7 @@ public class BuildMode : Mode
         }
         else
         {
-            Console.WriteLine("Failed to find any .toml or .bfpp files in the directory.");
+            IO.WriteErr("Failed to find any .toml or .bfpp files in the directory.");
             return null;
         }
     }
@@ -211,11 +224,11 @@ public class BuildMode : Mode
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
-    static ProjectSettings? LoadProject(string projectFile)
+    static ProjectSettings? LoadProject(BuildIO IO, string projectFile)
     {
         if (!File.Exists(projectFile))
         {
-            Console.WriteLine(@$"Provided file ""{projectFile}"" does not exist.");
+            IO.WriteLog(@$"Provided file ""{projectFile}"" does not exist.");
             return null;
         }
 
@@ -247,8 +260,8 @@ public class BuildMode : Mode
             }
             catch (Exception e)
             {
-                Console.WriteLine(@$"Failed to parse toml config file ""{projectFile}"".");
-                Console.WriteLine(e.Message);
+                IO.WriteErr(@$"Failed to parse toml config file ""{projectFile}"".");
+                IO.WriteErr(e.Message);
                 return null;
             }
 
@@ -263,8 +276,8 @@ public class BuildMode : Mode
                         goto nextOutput;
                     }
                 }
-                Console.WriteLine(@$"Unknown output type ""{output}""");
-                Console.WriteLine(@$"Only [{string.Join(", ", Enum.GetNames<ProjectSettings.EmitType>().Select(name => name.ToLower()))}] are allowed");
+                IO.WriteErr(@$"Unknown output type ""{output}""");
+                IO.WriteErr(@$"Only [{string.Join(", ", Enum.GetNames<ProjectSettings.EmitType>().Select(name => name.ToLower()))}] are allowed");
 
             nextOutput:;
             }
@@ -300,9 +313,10 @@ public class BuildMode : Mode
             };
         }
     }
-    
-    class LaunchCommand
+
+    public class LaunchCommand
     {
+        public string type => "launch";
         public required string exe { get; set; }
         public required string cwd { get; set; }
         public required List<string> args { get; set; }

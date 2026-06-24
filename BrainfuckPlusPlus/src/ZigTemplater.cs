@@ -55,7 +55,7 @@ public static class ZigTemplater
         _ => null
     };
 
-    static void CreateLocalZigFiles()
+    static void CreateLocalZigFiles(BuildIO IO)
     {
         var assembly = typeof(ZigTemplater).Assembly;
         var localPath = Path.GetDirectoryName(AppContext.BaseDirectory)!;
@@ -63,22 +63,26 @@ public static class ZigTemplater
         var localZigPath = Path.Combine(localPath, "zig");
 
         if (!Directory.Exists(localZigPath))
+            Directory.CreateDirectory(localZigPath);
+
+        if (!Directory.Exists(Path.Combine(localZigPath, ZigVersion)))
         {
-            Console.WriteLine("Unpacking zig...");
+            IO.WriteLog("Unpacking zig...");
             Directory.CreateDirectory(localZigPath);
             using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigVersion}.zip")!);
 
             zip.ExtractToDirectory(localZigPath);
-
-            void CreateFile(string fileName)
-            {
-                using var fileStream = File.Create(Path.Combine(localZigPath, fileName));
-                using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
-                resourceStream.CopyTo(fileStream);
-            }
-            CreateFile("build.zig");
-            CreateFile("build.zig.zon");
-            CreateFile("template.zig");
+        }
+        
+        CreateFile("build.zig");
+        CreateFile("build.zig.zon");
+        CreateFile("template.zig");
+        
+        void CreateFile(string fileName)
+        {
+            using var fileStream = File.Create(Path.Combine(localZigPath, fileName));
+            using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
+            resourceStream.CopyTo(fileStream);
         }
     }
     static string StringLitteral(StringSlice? slice)
@@ -88,19 +92,19 @@ public static class ZigTemplater
 
     static readonly byte[] IndentBytes = Encoding.UTF8.GetBytes("    ");
 
-    public static bool Template(AST ast, ProjectSettings projSettings, ref Func<string>? outputExecutable)
+    public static bool Template(BuildIO IO, AST ast, ProjectSettings projSettings, ref Func<string>? outputExecutable)
     {
         var zigSettings = projSettings.zigSettings;
 
         if (!zigSettings.includeFormatting && zigSettings.includeComments)
         {
-            Console.WriteLine("Zig config error: Cannot including comments while not including formatting");
+            IO.WriteErr("Zig config error: Cannot including comments while not including formatting");
             return false;
         }
 
         if (GetSizeTypeString(zigSettings.cellSize) is null)
         {
-            Console.WriteLine("Zig config error: Cell size must be 1, 2, 4, or 8");
+            IO.WriteErr("Zig config error: Cell size must be 1, 2, 4, or 8");
             return false;
         }
 
@@ -321,7 +325,7 @@ public static class ZigTemplater
         }
 
 
-        CreateLocalZigFiles();
+        CreateLocalZigFiles(IO);
 
         var assembly = typeof(ZigTemplater).Assembly;
         var localZigPath = Path.Combine(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig");
@@ -399,7 +403,7 @@ public static class ZigTemplater
 
         File.Copy(Path.Join(localZigPath, "build.zig"), Path.Join(projSettings.projectDir, "build-zig/build.zig"), true);
         File.Copy(Path.Join(localZigPath, "build.zig.zon"), Path.Join(projSettings.projectDir, "build-zig/build.zig.zon"), true);
-        Console.WriteLine("Zig Template Completed");
+        IO.WriteLog("Zig Template Completed");
 
         if (zigSettings.buildAfterTemplate)
         {
@@ -422,17 +426,17 @@ public static class ZigTemplater
             }
             catch (Exception e)
             {
-                Console.WriteLine(e);
+                IO.WriteErr(e.Message);
                 return false;
             }
 
-            Console.WriteLine("Zig Build Completed");
+            IO.WriteLog("Zig Build Completed");
 
             if (zigSettings.launchAfterBuild)
             {
                 outputExecutable = () =>
                 {
-                    Console.WriteLine("Running Zig Build...\n");
+                    IO.WriteLog("Running Zig Build...\n");
                     return Path.Join(projSettings.projectDir, "build-zig/zig-out/bin/brainfuck.exe");
                 };
             }

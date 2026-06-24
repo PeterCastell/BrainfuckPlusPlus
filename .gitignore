@@ -1,7 +1,8 @@
-.vscode/
-project/build-bf
-project/build-zig
+.vscode
 BrainfuckPlusPlus/bin
 BrainfuckPlusPlus/obj
 BrainfuckPlusPlus/template/.zig-cache
 BrainfuckPlusPlus/template/zig-out
+project
+build-zig
+build-bf

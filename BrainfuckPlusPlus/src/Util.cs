@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using Microsoft.VisualBasic;
 using Tomlyn.Model;
@@ -74,5 +76,17 @@ public static class Util
             });
         }
         return strOut.ToString();
+    }
+
+    public static TcpState GetState(this TcpClient tcpClient)
+    {
+        var foo = IPGlobalProperties.GetIPGlobalProperties()
+            .GetActiveTcpConnections()
+            .SingleOrDefault(x =>
+                x.LocalEndPoint.Equals(tcpClient.Client.LocalEndPoint)
+                && x.RemoteEndPoint.Equals(tcpClient.Client.RemoteEndPoint)
+            );
+
+        return foo != null ? foo.State : TcpState.Unknown;
     }
 }

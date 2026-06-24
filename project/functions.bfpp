@@ -23,9 +23,6 @@ $import("utils.bfpp")
     @0
 )
 
-
-
-
 # functions stored from -32 and below
 
 # 0 = rep ptr index, 1 = func name

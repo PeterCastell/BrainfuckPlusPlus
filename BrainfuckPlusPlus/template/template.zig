@@ -322,7 +322,7 @@ const Context = struct {
 
     pub fn assert(self: *Context, tapePosition: usize, lineNum: i32, columnNum: i32, file: []const u8, message: ?[]const u8) void {
         if (self.tapeCursor != tapePosition) {
-            if (comptime !includeCoreDebug()) {
+            if (comptime includeCoreDebug()) {
                 self.assertSlowpath(tapePosition, lineNum, columnNum, file, message);
             } else {
                 unreachable;
@@ -333,7 +333,7 @@ const Context = struct {
     pub fn assertRelative(self: *Context, offset: isize, cursorPosition: usize, lineNum: i32, columnNum: i32, file: []const u8, message: ?[]const u8) void {
         const testPosition = (cursorPosition + @as(usize, @intCast(@mod(offset, TapeLength)))) % TapeLength;
         if (self.tapeCursor != testPosition) {
-            if (comptime !includeCoreDebug()) {
+            if (comptime includeCoreDebug()) {
                 self.assertSlowpath(testPosition, lineNum, columnNum, file, message);
             } else {
                 unreachable;
