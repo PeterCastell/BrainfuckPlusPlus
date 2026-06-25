@@ -10,5 +10,9 @@ Using brainfuck is not meant to be easy and it's not my goal to change that. Bra
 1. It's like copy and paste - Syntax for duplicating code is added to reduce the physical amount of code needed while not making the actual algorithms any easier.
 2. Make everything possible - Things that were previously impossible like using native libraries and multithreading are made possible through special operators.
 
+## IDE Integration
+I also made an extension for VSCode which provides syntax highlighting and some tools for working with the compiler.
+https://github.com/PeterCastell/bfpp-syntax
+
 ## Licence
 This project is licensed under the GNU GPLv3 licence. Please see the licence file for more information.
