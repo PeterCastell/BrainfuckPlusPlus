@@ -32,7 +32,7 @@ pub fn IdMap(comptime T: type, comptime destroy: ?fn (val: *T) void) type {
         present: std.StaticBitSet(256),
 
         pub fn init(_: std.mem.Allocator) @This() {
-            return .{ .data = undefined, .present = .initEmpty() };
+            return .{ .data = undefined, .present = .empty };
         }
 
         pub fn ensure(self: *@This(), index: cell) !*T {
@@ -127,19 +127,15 @@ fn initMemory() !void {
         .windows => {
             const windows = std.os.windows;
 
-            const MEM_COMMIT = 0x00001000;
-            const MEM_RESERVE = 0x00002000;
-            const PAGE_READWRITE = 0x04;
-
-            var basePtrRaw: **anyopaque = undefined;
+            var basePtrRaw: *anyopaque = undefined;
             var tapeLengthRaw: usize = TapeAllocSize;
             const status = windows.ntdll.NtAllocateVirtualMemory(
                 windows.GetCurrentProcess(),
                 &basePtrRaw,
                 0,
                 &tapeLengthRaw,
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
+                .{ .COMMIT = true, .RESERVE = true },
+                .{ .READWRITE = true },
             );
             if (status != .SUCCESS) {
                 return error.AllocationFailed;
@@ -579,7 +575,7 @@ const Context = struct {
         for (0..buf.len) |i| {
             const cellVal = tapeAt((start + i) % TapeLength).*;
             if (cellVal == 0)
-                return len;
+                return buf[0..len];
             buf[len] = @truncate(cellVal);
             len += 1;
         }
