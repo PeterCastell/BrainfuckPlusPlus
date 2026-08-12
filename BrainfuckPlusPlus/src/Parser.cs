@@ -447,6 +447,19 @@ public class Parser(BuildIO IO)
             }
             return 1;
         }
+        int GetNextNumberOrCharOr1(ref TokenPosition end)
+        {
+            if (GetNext(Token.Type.Number, ref end) is Token t1)
+                return int.TryParse(t1.content, out var n) ? n : throw Except("Number is too large");
+            if (GetNext(Token.Type.Character, ref end) is Token t2)
+            {
+                char c = t2.content.Length == 2 ?
+                    GetEscapedCharacter(t2.content[1]) ?? throw Except(@$"Unknown escape character ""{t2.content[1]}""") :
+                    t2.content[0];
+                return c < 256 ? c : throw Except("Character must have a char code less than 256");
+            }
+            return 1;
+        }
         string? GetNextString(ref TokenPosition end)
         {
             if (GetNext(Token.Type.String, ref end) is not Token tok) return null;
@@ -576,7 +589,7 @@ public class Parser(BuildIO IO)
                     break;
                 case Token.Type.OpenForLoop:
                     PushContext(BodyType.For,
-                        ctx => Push(token, new LexForLoop(ctx, GetNextByteOrCharOr1(ref end)), end)
+                        ctx => Push(token, new LexForLoop(ctx, GetNextNumberOrCharOr1(ref end)), end)
                     );
                     break;
                 case Token.Type.OpenMutex:
