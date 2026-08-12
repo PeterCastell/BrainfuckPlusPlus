@@ -87,10 +87,14 @@ public static class ZigTemplater
         if (!Directory.Exists(Path.Combine(localZigPath, ZigString)))
         {
             IO.WriteLog($"Unpacking zig from {ZigString}...");
-            Directory.CreateDirectory(localZigPath);
-            using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.zip")!);
+            if (OperatingSystem.IsWindows())
+            {
+                using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.zip")!);
 
-            zip.ExtractToDirectory(localZigPath);
+                zip.ExtractToDirectory(localZigPath);
+            } else {
+                Util.ExtractTarXz(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.tar.xz")!, localZigPath);
+            }
         }
         
         CreateFile("build.zig");

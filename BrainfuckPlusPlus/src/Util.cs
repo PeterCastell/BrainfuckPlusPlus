@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Text;
 using Microsoft.VisualBasic;
 using Tomlyn.Model;
+using System.Formats.Tar;
+using SharpCompress.Compressors.Xz;
 
 namespace Brainfuck;
 
@@ -88,5 +90,11 @@ public static class Util
             );
 
         return foo != null ? foo.State : TcpState.Unknown;
+    }
+
+    public static void ExtractTarXz(Stream source, string destinationDirectory, bool overwriteFiles = true)
+    {
+        using var xz = new XZStream(source);
+        TarFile.ExtractToDirectory(xz, destinationDirectory, overwriteFiles);
     }
 }
