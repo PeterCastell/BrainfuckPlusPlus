@@ -274,7 +274,7 @@ const Context = struct {
         };
         var char: [1]u8 = @splat(0);
         while (true) {
-            _ = try std.fs.File.stdin().read(&char);
+            _ = try std.Io.File.stdin().readPositionalAll(io, &char, 0);
             if (char[0] == '\n' and S.lastWasCR) {
                 S.lastWasCR = false;
                 continue;
@@ -288,15 +288,15 @@ const Context = struct {
 
     pub fn print(self: *Context) !void {
         const char = [1]u8{@truncate(self.tape().*)};
-        _ = try std.fs.File.stdout().write(&char);
+        _ = try std.Io.File.stdout().writePositionalAll(io, &char, 0);
     }
 
     pub fn waitMs(self: *Context, delay: u64) void {
-        const now = Timestamp.now() catch unreachable;
+        const now = Timestamp.now(io, .real);
         const delayNs = delay * std.time.ns_per_ms;
-        const elapsed = now.since(self.lastTime);
+        const elapsed = self.lastTime.durationTo(now).nanoseconds;
         if (delayNs > elapsed)
-            std.Thread.sleep(delayNs - elapsed);
+            io.sleep(std.Io.Duration.fromNanoseconds(delayNs - elapsed), .real) catch unreachable;
         self.lastTime = now;
     }
 
@@ -493,10 +493,9 @@ const Context = struct {
         const dllNameSpan = scanTape(u8, self.tapeCursor, dllNameBuf[0..MaxScanSize]);
         const funcNameSpan = scanTape(u8, self.tapeCursor + 1 + dllNameSpan.len, funcNameBuf[0..MaxScanSize]);
 
-        const dllName = dllNameBuf[0 .. dllNameSpan.len + 1];
-        const funcName = funcNameBuf[0 .. funcNameSpan.len + 1];
+        const funcName = funcNameBuf[0..funcNameSpan.len :0];
 
-        var lib = std.DynLib.open(dllName) catch |err| {
+        var lib = std.DynLib.open(dllNameSpan) catch |err| {
             if (comptime !includeAllDebug())
                 std.debug.print("{s} ({d}, {d}): couldn't open library \"{s}\"\n", .{ file, line, col, dllNameSpan });
             if (IgnoreErrorFindExternFunction)
@@ -512,7 +511,7 @@ const Context = struct {
             return error.FunctionNotFound;
         };
 
-        writeTapeValue(*const anyfunc, self.tapeCursor + dllName.len + 1 + funcName.len + 1, func);
+        writeTapeValue(*const anyfunc, self.tapeCursor + dllNameSpan.len + 1 + funcName.len + 1, func);
     }
 
     fn callExternFunction(self: *Context) !void {
