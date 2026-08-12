@@ -18,10 +18,10 @@ fn ByteSpan(T: type) type {
 const ptrCellSize = cellSizeOf(*anyopaque);
 
 fn includeCoreDebug() bool {
-    return builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
+    return builtin.mode == .debug or builtin.mode == .release_safe;
 }
 fn includeAllDebug() bool {
-    return builtin.mode == .Debug;
+    return builtin.mode == .debug;
 }
 
 const anyfunc = fn () callconv(.c) void;
@@ -656,11 +656,11 @@ comptime {
         @compileError("Cell size too large for target architecture");
 }
 
-var alloc = if (builtin.mode == .Debug) std.heap.DebugAllocator(.{}).init;
-const gpa = if (builtin.mode == .Debug) alloc.allocator() else std.heap.smp_allocator;
+var alloc = if (builtin.mode == .debug) std.heap.DebugAllocator(.{}).init;
+const gpa = if (builtin.mode == .debug) alloc.allocator() else std.heap.smp_allocator;
 
 pub fn main(init: std.process.Init) !void {
-    defer _ = if (builtin.mode == .Debug) alloc.deinit();
+    defer _ = if (builtin.mode == .debug) alloc.deinit();
 
     io = init.io;
 
@@ -683,4 +683,8 @@ const cell = // #t
 fn run() !u8 {
     // #m
     return 0;
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }
