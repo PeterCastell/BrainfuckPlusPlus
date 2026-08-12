@@ -161,7 +161,7 @@ public static class ZigTemplater
                         Emit(@$"fn func{function.Id}({string.Join(", ", args)}) callconv(.c) {GetTypeString(function.RetType)} {{");
                         if (!returnsVoid)
                             EmitIn("return");
-                        EmitIn($"func{function.Id}inner({string.Join(", ", argNames)}) catch |err| {{ functionFailed(err); unreachable; }};");
+                        EmitIn($"func{function.Id}inner({string.Join(", ", argNames)}) catch |err| functionFailed(err);");
                         Emit("}");
                         break;
                 }

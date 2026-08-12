@@ -635,7 +635,7 @@ const Context = struct {
     }
 };
 
-fn functionFailed(err: anyerror) void {
+fn functionFailed(err: anyerror) noreturn {
     std.log.err("error: {s}", .{@errorName(err)});
     if (@errorReturnTrace()) |trace| {
         std.debug.dumpStackTrace(trace.*);
