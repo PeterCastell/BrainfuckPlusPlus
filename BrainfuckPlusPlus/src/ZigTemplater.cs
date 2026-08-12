@@ -20,7 +20,7 @@ public static class ZigTemplater
         public int cellSize { get; set; } = 1;
     }
 
-    static readonly string ZigVersion = "zig-x86_64-windows-0.17.0-dev.702+18b3c78a9";
+    static readonly string ZigVersion = "zig-x86_64-windows-0.17.0-dev.892+54537285c";
     static string GetTypeString(AST.Type type) => type switch
     {
         AST.Type.Void => "void",
