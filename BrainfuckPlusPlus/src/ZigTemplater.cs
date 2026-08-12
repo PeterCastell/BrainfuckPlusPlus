@@ -1,8 +1,11 @@
+using System;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using Tomlyn.Serialization;
+
+using Arch = System.Runtime.InteropServices.Architecture;
 
 namespace Brainfuck;
 
@@ -20,7 +23,23 @@ public static class ZigTemplater
         public int cellSize { get; set; } = 1;
     }
 
-    static readonly string ZigVersion = "zig-x86_64-windows-0.17.0-dev.892+54537285c";
+    static readonly string ZigPrefix = "zig-";
+    static readonly string ZigSuffix = "-0.17.0-dev.1676+c9dc9b798";
+
+    static string ZigString => $"{ZigPrefix}{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch {
+        Arch.X86 => "x86",
+        Arch.X64 => "x86_64",
+        Arch.Arm64 => "aarch64",
+        Arch.RiscV64 => "riscv64",
+        Arch arch => throw new Exception($"Unsupported architecture {arch}"),
+    }}-{false switch {
+        _ when OperatingSystem.IsWindows() => "windows",
+        _ when OperatingSystem.IsMacOS() => "macos",
+        _ when OperatingSystem.IsLinux() => "linux",
+        _ when OperatingSystem.IsFreeBSD() => "freebsd",
+        _ => throw new Exception($"Unsupported OS {System.Runtime.InteropServices.RuntimeInformation.OSDescription}"),
+    }}{ZigSuffix}";
+    
     static string GetTypeString(AST.Type type) => type switch
     {
         AST.Type.Void => "void",
@@ -65,11 +84,11 @@ public static class ZigTemplater
         if (!Directory.Exists(localZigPath))
             Directory.CreateDirectory(localZigPath);
 
-        if (!Directory.Exists(Path.Combine(localZigPath, ZigVersion)))
+        if (!Directory.Exists(Path.Combine(localZigPath, ZigString)))
         {
-            IO.WriteLog("Unpacking zig...");
+            IO.WriteLog($"Unpacking zig from {ZigString}...");
             Directory.CreateDirectory(localZigPath);
-            using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigVersion}.zip")!);
+            using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.zip")!);
 
             zip.ExtractToDirectory(localZigPath);
         }
@@ -411,7 +430,7 @@ public static class ZigTemplater
 
         if (zigSettings.buildAfterTemplate)
         {
-            var zigExecutable = zigSettings.zigPath ?? Path.Join(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig", ZigVersion, "zig.exe");
+            var zigExecutable = zigSettings.zigPath ?? Path.Join(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig", ZigString, "zig.exe");
             try
             {
                 var procInfo = new ProcessStartInfo(zigExecutable)
