@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .libffi = .{
-            .url = "git+https://codeberg.org/mpfaff/libffi.git#b67655d104d3e393d67db0b53a67d6c791baf54c",
-            .hash = "libffi-3.5.2-7_tEtC47FwB5sjunFE02ikjFFL259Jd2ir1lkzOnhLiD",
+            .url = "git+https://codeberg.org/mpfaff/libffi.git#587b313077be32ec24a0eff7bb2ba1200502bfe4",
+            .hash = "libffi-3.5.2-7_tEtDY7FwAi0ZoaMd1A-6hnIe_coasks4cTuY0_2CSq",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "template.zig" },
