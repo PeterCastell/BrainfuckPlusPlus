@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using Tomlyn.Serialization;
 
@@ -39,7 +40,9 @@ public static class ZigTemplater
         _ when OperatingSystem.IsFreeBSD() => "freebsd",
         _ => throw new Exception($"Unsupported OS {System.Runtime.InteropServices.RuntimeInformation.OSDescription}"),
     }}{ZigSuffix}";
-    
+
+    static readonly string ExeSuffix = OperatingSystem.IsWindows() ? ".exe" : "";
+
     static string GetTypeString(AST.Type type) => type switch
     {
         AST.Type.Void => "void",
@@ -106,10 +109,22 @@ public static class ZigTemplater
         void CreateFile(string fileName)
         {
             var path = Path.Combine(localZigPath, fileName);
-            if (File.Exists(path)) return;
-            using var fileStream = File.Create(path);
             using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
+            if (File.Exists(path)) {
+                using var fileRStream = File.OpenRead(path);
+                if (SHA256.HashData(fileRStream).SequenceEqual(SHA256.HashData(resourceStream))) {
+                    IO.WriteLog($"Resource file {fileName} is up to date.");
+                    return;
+                }
+                if (File.Exists($"{path}.BFOVERRIDE")) {
+                    IO.WriteLog($"Resource file {fileName} has been overridden.");
+                    return;
+                }
+                resourceStream.Seek(0, SeekOrigin.Begin);
+            }
+            using var fileStream = File.Create(path);
             resourceStream.CopyTo(fileStream);
+            IO.WriteLog($"Resource file {fileName} has been extracted.");
         }
     }
     static string StringLitteral(StringSlice? slice)
@@ -438,7 +453,7 @@ public static class ZigTemplater
 
         if (zigSettings.buildAfterTemplate)
         {
-            var zigExecutable = zigSettings.zigPath ?? Path.Join(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig", ZigString, "zig.exe");
+            var zigExecutable = zigSettings.zigPath ?? Path.Join(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig", ZigString, $"zig{ExeSuffix}");
             try
             {
                 var procInfo = new ProcessStartInfo(zigExecutable)
@@ -468,7 +483,7 @@ public static class ZigTemplater
                 outputExecutable = () =>
                 {
                     IO.WriteLog("Running Zig Build...\n");
-                    return Path.Join(projSettings.projectDir, "build-zig/zig-out/bin/brainfuck.exe");
+                    return Path.Join(projSettings.projectDir, $"build-zig/zig-out/bin/brainfuck{ExeSuffix}");
                 };
             }
         }

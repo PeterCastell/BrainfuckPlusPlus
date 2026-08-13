@@ -290,7 +290,7 @@ const Context = struct {
 
     pub fn print(self: *Context) !void {
         const char = [1]u8{@truncate(self.tape().*)};
-        _ = try std.Io.File.stdout().writePositionalAll(io, &char, 0);
+        _ = try std.Io.File.stdout().writeStreamingAll(io, &char);
     }
 
     pub fn waitMs(self: *Context, delay: u64) void {
@@ -663,6 +663,7 @@ pub fn main(init: std.process.Init) !void {
     io = init.io;
 
     mainArgs = try init.minimal.args.toSlice(gpa);
+    defer gpa.free(mainArgs);
 
     try initMemory();
     const code = try run();
@@ -685,5 +686,5 @@ fn run() !u8 {
 }
 
 test {
-    std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }
