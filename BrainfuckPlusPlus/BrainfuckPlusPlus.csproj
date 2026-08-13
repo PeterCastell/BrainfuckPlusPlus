@@ -14,6 +14,7 @@
     <EmbeddedResource Include="template\build.zig" />
     <EmbeddedResource Include="template\build.zig.zon" />
     <EmbeddedResource Include="template\template.zig" />
+    <EmbeddedResource Include="template\DynLib.zig" />
     <EmbeddedResource Include="template\zig-*.zip" />
     <EmbeddedResource Include="example\project.toml" />
     <EmbeddedResource Include="example\main.bfpp" />

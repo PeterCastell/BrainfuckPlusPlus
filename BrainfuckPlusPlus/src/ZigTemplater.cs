@@ -100,6 +100,7 @@ public static class ZigTemplater
         CreateFile("build.zig");
         CreateFile("build.zig.zon");
         CreateFile("template.zig");
+        CreateFile("DynLib.zig");
         
         void CreateFile(string fileName)
         {
@@ -428,8 +429,10 @@ public static class ZigTemplater
 
         fileStream.Close();
 
-        File.Copy(Path.Join(localZigPath, "build.zig"), Path.Join(projSettings.projectDir, "build-zig/build.zig"), true);
-        File.Copy(Path.Join(localZigPath, "build.zig.zon"), Path.Join(projSettings.projectDir, "build-zig/build.zig.zon"), true);
+        void CopyFile(string name) => File.Copy(Path.Join(localZigPath, name), Path.Join(projSettings.projectDir, "build-zig/" + name), true);
+        CopyFile("build.zig");
+        CopyFile("build.zig.zon");
+        CopyFile("DynLib.zig");
         IO.WriteLog("Zig Template Completed");
 
         if (zigSettings.buildAfterTemplate)

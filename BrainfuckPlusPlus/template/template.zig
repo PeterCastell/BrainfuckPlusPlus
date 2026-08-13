@@ -5,6 +5,7 @@ const ffi = @import("ffi");
 const Io = std.Io;
 const Mutex = std.Io.Mutex;
 const Timestamp = std.Io.Timestamp;
+const DynLib = @import("DynLib.zig");
 
 fn cellSizeOf(T: type) u32 {
     return @max(1, @sizeOf(T) / @sizeOf(cell));
@@ -127,17 +128,18 @@ fn initMemory() !void {
         .windows => {
             const windows = std.os.windows;
 
-            var basePtrRaw: *anyopaque = undefined;
+            var basePtrRaw: ?*anyopaque = null;
             var tapeLengthRaw: usize = TapeAllocSize;
             const status = windows.ntdll.NtAllocateVirtualMemory(
                 windows.GetCurrentProcess(),
-                &basePtrRaw,
+                @ptrCast(&basePtrRaw),
                 0,
                 &tapeLengthRaw,
                 .{ .COMMIT = true, .RESERVE = true },
                 .{ .READWRITE = true },
             );
             if (status != .SUCCESS) {
+                std.log.err("Allocation Status: {}", .{status});
                 return error.AllocationFailed;
             }
             basePtr = @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(basePtrRaw)));
@@ -495,7 +497,7 @@ const Context = struct {
 
         const funcName = funcNameBuf[0..funcNameSpan.len :0];
 
-        var lib = std.DynLib.open(dllNameSpan) catch |err| {
+        var lib = DynLib.open(dllNameSpan) catch |err| {
             if (comptime !includeAllDebug())
                 std.debug.print("{s} ({d}, {d}): couldn't open library \"{s}\"\n", .{ file, line, col, dllNameSpan });
             if (IgnoreErrorFindExternFunction)
@@ -663,6 +665,7 @@ pub fn main(init: std.process.Init) !void {
 
     try initMemory();
     const code = try run();
+
     std.process.exit(code);
 }
 
