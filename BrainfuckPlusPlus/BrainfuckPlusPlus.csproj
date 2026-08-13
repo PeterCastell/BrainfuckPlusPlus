@@ -15,10 +15,15 @@
     <EmbeddedResource Include="template\build.zig.zon" />
     <EmbeddedResource Include="template\template.zig" />
     <EmbeddedResource Include="template\DynLib.zig" />
-    <EmbeddedResource Include="template\zig-*.zip" />
     <EmbeddedResource Include="example\project.toml" />
     <EmbeddedResource Include="example\main.bfpp" />
     <EmbeddedResource Include="example\reference.md" />
+
+    <!-- Zig compiler. Platform specific. -->
+    <EmbeddedResource Include="template\zig-aarch64-macos-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+    <EmbeddedResource Include="template\zig-x86_64-linux-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+    <EmbeddedResource Include="template\zig-x86_64-macos-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'osx-x64'" />
+    <EmbeddedResource Include="template\zig-x86_64-windows-*.zip" Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
   </ItemGroup>
 
   <ItemGroup>

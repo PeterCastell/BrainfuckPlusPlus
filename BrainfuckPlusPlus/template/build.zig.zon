@@ -2,7 +2,7 @@
     .name = .brainfuck,
     .fingerprint = 0x8616795e9b115e81,
     .version = "0.0.1",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0-dev.1676+c9dc9b798",
     .dependencies = .{
         .libffi = .{
             .url = "git+https://codeberg.org/mpfaff/libffi.git#587b313077be32ec24a0eff7bb2ba1200502bfe4",
