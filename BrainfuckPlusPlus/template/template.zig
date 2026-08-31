@@ -319,10 +319,11 @@ const Context = struct {
         @panic("assert failed");
     }
 
-    pub fn assert(self: *Context, tapePosition: usize, lineNum: i32, columnNum: i32, file: []const u8, message: ?[]const u8) void {
-        if (self.tapeCursor != tapePosition) {
+    pub fn assert(self: *Context, tapePosition: isize, lineNum: i32, columnNum: i32, file: []const u8, message: ?[]const u8) void {
+        const uTapePos: usize = @intCast(@mod(tapePosition, TapeLength));
+        if (self.tapeCursor != uTapePos) {
             if (comptime includeCoreDebug()) {
-                self.assertSlowpath(tapePosition, lineNum, columnNum, file, message);
+                self.assertSlowpath(uTapePos, lineNum, columnNum, file, message);
             } else {
                 unreachable;
             }
@@ -541,7 +542,7 @@ const Context = struct {
     }
 
     pub fn createMutex(self: *Context) !void {
-        try MutexMap.put(self.tape().*, .{});
+        try MutexMap.put(self.tape().*, .init);
     }
 
     pub fn getMutex(self: *Context) !*Mutex {
@@ -635,7 +636,7 @@ const Context = struct {
 fn functionFailed(err: anyerror) noreturn {
     std.log.err("error: {s}", .{@errorName(err)});
     if (@errorReturnTrace()) |trace| {
-        std.debug.dumpStackTrace(trace.*);
+        std.debug.dumpErrorReturnTrace(trace);
     }
     @panic("unhandled error");
 }

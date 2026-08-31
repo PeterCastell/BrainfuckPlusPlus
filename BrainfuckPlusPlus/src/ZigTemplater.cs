@@ -74,6 +74,7 @@ public static class ZigTemplater
         _ => null
     };
 
+    static string EscapeString(ReadOnlySpan<char> text) => Util.EscapeString(text, @"\u{0}");
     static void CreateLocalZigFiles(BuildIO IO)
     {
         var assembly = typeof(ZigTemplater).Assembly;
@@ -113,7 +114,7 @@ public static class ZigTemplater
     }
     static string StringLitteral(StringSlice? slice)
     {
-        return slice.HasValue ? @$"""{Util.EscapeString(slice.Value)}""" : "null";
+        return slice.HasValue ? @$"""{EscapeString(slice.Value)}""" : "null";
     }
 
     static readonly byte[] IndentBytes = Encoding.UTF8.GetBytes("    ");
@@ -156,7 +157,7 @@ public static class ZigTemplater
                 {
                     case AST.FileEmbed embed:
                         if (zigSettings.includeComments)
-                            Emit(@$"// {Util.EscapeString(embed.FilePath)}");
+                            Emit(@$"// {EscapeString(embed.FilePath)}");
                         Emit(@$"const embed{embed.Id}: [*]const u8 = @embedFile(""embeded\\embed{embed.Id}"");");
                         break;
                     
@@ -219,8 +220,8 @@ public static class ZigTemplater
                             break;
                         case AST.ModifyString modify:
                             Emit(modify.SignPositive ?
-                                $@"ctx.increaseString(""{Util.EscapeString(modify.Amounts)}"");" :
-                                $@"ctx.decreaseString(""{Util.EscapeString(modify.Amounts)}"");"
+                                $@"ctx.increaseString(""{EscapeString(modify.Amounts)}"");" :
+                                $@"ctx.decreaseString(""{EscapeString(modify.Amounts)}"");"
                             );
                             break;
                         case AST.Move move:
@@ -256,11 +257,11 @@ public static class ZigTemplater
                         case AST.MutexBody mb:
                             Emit($"{{");
                             Emit($"const mutex{mutexDepth} = try ctx.getMutex();");
-                            Emit($"mutex{mutexDepth}.lock();");
+                            Emit($"try mutex{mutexDepth}.lock(io);");
                             mutexDepth++;
                             EmitBody(mb.Body, indent + (zigSettings.includeComments ? 1 : 0), stream);
                             mutexDepth--;
-                            Emit($"mutex{mutexDepth}.unlock();");
+                            Emit($"mutex{mutexDepth}.unlock(io);");
                             Emit($"}}");
                             break;
                         case AST.Print:
@@ -288,7 +289,7 @@ public static class ZigTemplater
                             Emit($@"ctx.assertRelative({assertRelative.Offset}, entry{assertRelative.EntryId}, {ctx.Start.Row}, {ctx.Start.Column}, ""{ctx.File}"", {StringLitteral(assertRelative.Message)});");
                             break;
                         case AST.DebugPrintLitteral dbLitteral:
-                            Emit($@"ctx.printDebugMessage({ctx.Start.Row}, {ctx.Start.Column}, ""{ctx.File}"", ""{Util.EscapeString(dbLitteral.Message)}"");");
+                            Emit($@"ctx.printDebugMessage({ctx.Start.Row}, {ctx.Start.Column}, ""{ctx.File}"", ""{EscapeString(dbLitteral.Message)}"");");
                             break;
                         case AST.DebugQuit quit:
                             Emit($@"ctx.debugQuit({ctx.Start.Row}, {ctx.Start.Column}, ""{ctx.File}"", {StringLitteral(quit.Message)});");

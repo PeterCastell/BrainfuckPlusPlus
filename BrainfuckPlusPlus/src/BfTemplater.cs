@@ -19,7 +19,6 @@ public static class BfTemplater
         var bfSettings = projSettings.bfSettings;
 
         var indentBytes = Encoding.UTF8.GetBytes("    ");
-        var commentBytes = Encoding.UTF8.GetBytes("//");
 
         void EmitGlobals(Stream stream)
         {
