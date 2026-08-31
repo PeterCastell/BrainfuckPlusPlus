@@ -61,7 +61,7 @@ public static class Util
     public static StringSlice Slice(this string @string) => new(@string);
     public static StringSlice Slice(this string @string, Range range) => new StringSlice(@string)[range];
 
-    public static string EscapeString(ReadOnlySpan<char> str)
+    public static string EscapeString(ReadOnlySpan<char> str, string? nullEscape = null)
     {
         var strOut = new StringBuilder(str.Length);
         for (int i = 0; i < str.Length; i++)
@@ -73,7 +73,7 @@ public static class Util
                 '\n' => @"\n",
                 '\b' => @"\b",
                 '\t' => @"\t",
-                '\0' => @"\0",
+                '\0' => nullEscape ?? @"\0",
                 _ => str[i]
             });
         }

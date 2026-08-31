@@ -71,13 +71,13 @@ public class BuildMode : Mode
         }
         else if (Directory.Exists(path))
         {
-            var projFile = FindProjectFile(IO, args[0]);
+            var projFile = FindProjectFile(IO, path);
             if (projFile is null) return;
             projSettings = LoadProject(IO, projFile);
         }
         else
         {
-            projSettings = LoadProject(IO, args[0]);
+            projSettings = LoadProject(IO, path);
         }
 
         if (projSettings is null)

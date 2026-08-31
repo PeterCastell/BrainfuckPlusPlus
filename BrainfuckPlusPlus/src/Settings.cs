@@ -21,8 +21,8 @@ public class ProjectSettings
 
 public class CommonSettings
 {
-    bool? IncludeComments { get; set; }
-    bool? IncludeFormatting { get; set; }
+    public bool? IncludeComments { get; set; }
+    public bool? IncludeFormatting { get; set; }
 
     [JsonIgnore]
     public bool includeComments => IncludeComments ?? true;

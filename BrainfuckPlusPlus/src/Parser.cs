@@ -253,7 +253,7 @@ public class Parser(BuildIO IO)
             [TypeRegex(@"\d+")] Number,
             [TypeRegex(@"\'(\\?.)\'")] Character,
             [TypeRegex(@"\w+")] Name,
-            [TypeRegex(@"\""(.*?)(?<!\\)\""")] String
+            [TypeRegex(@"""(([^\\]|\\.)*?)?""")] String
         }
         public required Type type;
         public required StringSlice content;
