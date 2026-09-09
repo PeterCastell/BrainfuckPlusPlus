@@ -19,8 +19,8 @@ public class HelpMode : Mode
         {
             case "init":
                 Console.WriteLine("""
-                Usage: brainfuck++ init
-                Creates "project.toml" and "program.bfpp" in the current working directory.
+                Usage: brainfuck++ init [path]
+                Creates the project files in the current working directory or the provided path.
                 """);
                 break;
             case "build":
