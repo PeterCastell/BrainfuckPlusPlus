@@ -1,6 +1,5 @@
 
 
-using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,8 +16,14 @@ public class BuildMode : Mode
         public bool redirectLaunch = false;
         public int? idePort = null;
     }
+    public record BuildResult(BuildIO IO, ProjectSettings ProjectSettings, string ExecutablePath, bool RedirectLaunch);
     public string Keyword => "build";
     public void Execute(ReadOnlySpan<string> args)
+    {
+        ExecuteBuild(args, null);
+    }
+
+    public static void ExecuteBuild(ReadOnlySpan<string> args, Action<BuildResult>? onBuilt, bool allowRedirectLaunch = false)
     {
         ProjectSettings? projSettings;
         CommandSettings cmdSettings = new();
@@ -38,15 +43,12 @@ public class BuildMode : Mode
                     cmdSettings.idePort = port;
                     continue;
                 }
-                switch (arg)
+                if (arg == "-redirectLaunch" && allowRedirectLaunch)
                 {
-                    case "-redirectLaunch":
-                        cmdSettings.redirectLaunch = true;
-                        break;
-                    default:
-                        Console.Error.WriteLine(@$"Unknown flag ""{arg}""");
-                        break;
+                    cmdSettings.redirectLaunch = true;
+                    continue;
                 }
+                Console.Error.WriteLine($"Unknown flag \"{arg}\"");
             }
             else if (path != null)
             {
@@ -119,37 +121,7 @@ public class BuildMode : Mode
         }
 
         if (outputExecutable is not null)
-        {
-            var executablePath = outputExecutable.Invoke();
-
-            if (cmdSettings.redirectLaunch)
-            {
-                IO.SendLaunchRedirect(new LaunchCommand()
-                {
-                    exe = executablePath,
-                    cwd = projSettings.projectDir,
-                    args = projSettings.launchSettings.args
-                });
-                return;
-            }
-            var startInfo = new ProcessStartInfo(executablePath) { WorkingDirectory = projSettings.projectDir };
-            foreach (var arg in projSettings.launchSettings.args)
-                startInfo.ArgumentList.Add(arg);
-            var proc = Process.Start(startInfo);
-            if (proc is null)
-            {
-                IO.WriteLog("Failed to run build output");
-                return;
-            }
-
-            IO.ShouldExit += () =>
-            {
-                if (!proc.HasExited)
-                    proc.Kill(entireProcessTree: true);
-            };
-
-            proc.WaitForExit();
-        }
+            onBuilt?.Invoke(new BuildResult(IO, projSettings, outputExecutable.Invoke(), cmdSettings.redirectLaunch));
     }
 
 

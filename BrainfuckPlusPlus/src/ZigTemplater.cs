@@ -18,7 +18,7 @@ public static class ZigTemplater
         public string? zigPath;
         public List<string> args { get; set; } = [];
         public bool buildAfterTemplate { get; set; } = true;
-        public bool launchAfterBuild { get; set; } = true;
+        public string? templateOverrides;
         [TomlSingleOrArray]
         public List<string> ignoreError { get; set; } = [];
         public int cellSize { get; set; } = 1;
@@ -114,10 +114,6 @@ public static class ZigTemplater
                 using var fileRStream = File.OpenRead(path);
                 if (SHA256.HashData(fileRStream).SequenceEqual(SHA256.HashData(resourceStream))) {
                     IO.WriteLog($"Resource file {fileName} is up to date.");
-                    return;
-                }
-                if (File.Exists($"{path}.BFOVERRIDE")) {
-                    IO.WriteLog($"Resource file {fileName} has been overridden.");
                     return;
                 }
                 resourceStream.Seek(0, SeekOrigin.Begin);
@@ -365,14 +361,19 @@ public static class ZigTemplater
                 }
             }
         }
-
+        
+        var overrideDir = zigSettings.templateOverrides != null ? Path.Combine(projSettings.projectDir, zigSettings.templateOverrides) : null;
 
         CreateLocalZigFiles(IO);
 
         var assembly = typeof(ZigTemplater).Assembly;
         var localZigPath = Path.Combine(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig");
 
-        using var templateStream = File.OpenRead(Path.Join(localZigPath, "template.zig"));
+        string? templateFile = null;
+        if (overrideDir != null && File.Exists(Path.Join(overrideDir, "template.zig")))
+            templateFile = Path.Join(overrideDir, "template.zig");
+        
+        using var templateStream = File.OpenRead(templateFile ?? Path.Join(localZigPath, "template.zig"));
 
         Directory.CreateDirectory(Path.Join(projSettings.projectDir, "build-zig"));
         var fileStream = File.Create(Path.Join(projSettings.projectDir, "build-zig/template.zig"));
@@ -445,7 +446,14 @@ public static class ZigTemplater
 
         fileStream.Close();
 
-        void CopyFile(string name) => File.Copy(Path.Join(localZigPath, name), Path.Join(projSettings.projectDir, "build-zig/" + name), true);
+
+        void CopyFile(string name) {
+            string? templateFile = null;
+            if (overrideDir != null && File.Exists(Path.Join(overrideDir, name)))
+                templateFile = Path.Join(overrideDir, name);
+            
+            File.Copy(templateFile ?? Path.Join(localZigPath, name), Path.Join(projSettings.projectDir, "build-zig/" + name), true);
+        }
         CopyFile("build.zig");
         CopyFile("build.zig.zon");
         CopyFile("DynLib.zig");
@@ -468,7 +476,6 @@ public static class ZigTemplater
                 proc.WaitForExit();
                 if (proc.ExitCode != 0)
                     return false;
-
             }
             catch (Exception e)
             {
@@ -478,14 +485,7 @@ public static class ZigTemplater
 
             IO.WriteLog("Zig Build Completed");
 
-            if (zigSettings.launchAfterBuild)
-            {
-                outputExecutable = () =>
-                {
-                    IO.WriteLog("Running Zig Build...\n");
-                    return Path.Join(projSettings.projectDir, $"build-zig/zig-out/bin/brainfuck{ExeSuffix}");
-                };
-            }
+            outputExecutable = () => Path.Join(projSettings.projectDir, $"build-zig/zig-out/bin/brainfuck{ExeSuffix}");
         }
 
         return true;
