@@ -18,7 +18,6 @@ include_formatting = true
 [zig]
 args=[] # Args for the zig compiler
 build_after_template = true
-launch_after_build = true
 cell_size = 1 # in bytes
 #   Certain failures which would stop execution by default
 #   can be ignored. Failures would simply not modify the tape.

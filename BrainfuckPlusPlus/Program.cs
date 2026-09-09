@@ -22,6 +22,7 @@ public static class Program
             Commands:
             init    Initialize a project directory
             build   Build a project
+            run     Build and run a project
 
             Run 'brainfuck++ help <command>' for more information on any command.
             """);

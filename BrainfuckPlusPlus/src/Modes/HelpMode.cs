@@ -26,6 +26,18 @@ public class HelpMode : Mode
             case "build":
                 Console.WriteLine("""
                 Usage: brainfuck++ build [path] [flags]
+                Builds the project.
+
+                Flags:
+                -idePipe=name       Send build log and exit event to named pipe. Supports exit command.
+
+                Finds a .toml or .bfpp file in the current working directory.
+                A path to search in, a .toml file, or a .bfpp file may be provided as [path].
+                """);
+                break;
+            case "run":
+                Console.WriteLine("""
+                Usage: brainfuck++ run [path] [flags]
                 Builds and runs the project.
 
                 Flags:
