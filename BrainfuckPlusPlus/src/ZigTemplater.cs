@@ -311,6 +311,9 @@ public static class ZigTemplater
                         case AST.Dereference:
                             Emit($"ctx.dereference();");
                             break;
+                        case AST.WriteToReference:
+                            Emit($"ctx.writeToReference();");
+                            break;
                         case AST.GetEmbedReference embedRef:
                             Emit($"ctx.writeReference(embed{embedRef.EmbedId});");
                             break;

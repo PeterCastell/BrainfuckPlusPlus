@@ -184,6 +184,12 @@ When interacting with outside code it's important to be able to reference cells 
   #  writes the value at that memory address to cell 24
 ```
 
+The write to reference operator is a backtick `` ` `` and allows for storing data from the tape to a location in memory.
+```bfpp
+` # reads a pointer from cells 0-7 and a value from cell 8 and
+  # writes that value to that memory address
+```
+
 ### Simple Operators
 |OP |Description| Default *n*
 |:-:|---|---

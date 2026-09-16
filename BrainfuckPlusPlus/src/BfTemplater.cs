@@ -172,6 +172,9 @@ public static class BfTemplater
                     case AST.Dereference:
                         Emit($"~");
                         break;
+                    case AST.WriteToReference:
+                        Emit($"`");
+                        break;
                     case AST.GetEmbedReference embed:
                         var filePath = ast.globals
                             .WhereType<AST.GlobalToken, AST.FileEmbed>()
