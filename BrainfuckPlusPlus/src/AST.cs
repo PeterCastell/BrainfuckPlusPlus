@@ -70,6 +70,7 @@ public sealed record AST(AST.Body body, List<AST.GlobalToken> globals, bool Retu
     public record DebugPrintLitteral(StringSlice Message) : Token;
     public record TakeReference() : Token;
     public record Dereference() : Token;
+    public record WriteToReference() : Token;
     public record FindExternFunction() : Token;
     public record PrepareExternCaller() : Token;
     public record CallExternFunction() : Token;

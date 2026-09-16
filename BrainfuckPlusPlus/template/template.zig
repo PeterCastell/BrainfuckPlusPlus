@@ -265,6 +265,11 @@ const Context = struct {
         const ptr = readTapeValue(*const u8, self.tapeCursor);
         writeTapeValue(u8, self.tapeCursor + ptrCellSize, ptr.*);
     }
+    pub fn writeToReference(self: *Context) void {
+        const ptr = readTapeValue(*u8, self.tapeCursor);
+        const val = readTapeValue(u8, self.tapeCursor + ptrCellSize);
+        ptr.* = val;
+    }
 
     pub fn writeReference(self: *Context, embed: *const anyopaque) void {
         writeTapeValue(*const anyopaque, self.tapeCursor, embed);

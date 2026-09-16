@@ -248,6 +248,7 @@ public class Parser(BuildIO IO)
             [TypeRegex(@"\!")] Wait,
             [TypeRegex(@"\*")] TakeReference,
             [TypeRegex(@"\~")] Dereference,
+            [TypeRegex(@"\`")] WriteToReference,
 
             [TypeRegex(@"#(.*?)(?:\\\#|$)")] Comment,
             [TypeRegex(@"\d+")] Number,
@@ -543,6 +544,9 @@ public class Parser(BuildIO IO)
                     break;
                 case Token.Type.Dereference:
                     Push(token, new AST.Dereference(), end);
+                    break;
+                case Token.Type.WriteToReference:
+                    Push(token, new AST.WriteToReference(), end);
                     break;
                 case Token.Type.ExternGet:
                     Push(token, new AST.FindExternFunction(), end);
