@@ -112,10 +112,8 @@ public static class ZigTemplater
             using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
             if (File.Exists(path)) {
                 using var fileRStream = File.OpenRead(path);
-                if (SHA256.HashData(fileRStream).SequenceEqual(SHA256.HashData(resourceStream))) {
-                    IO.WriteLog($"Resource file {fileName} is up to date.");
+                if (SHA256.HashData(fileRStream).SequenceEqual(SHA256.HashData(resourceStream)))
                     return;
-                }
                 resourceStream.Seek(0, SeekOrigin.Begin);
             }
             using var fileStream = File.Create(path);
