@@ -19,7 +19,7 @@ fn ByteSpan(T: type) type {
 const ptrCellSize = cellSizeOf(*anyopaque);
 
 fn includeCoreDebug() bool {
-    return builtin.mode == .debug or builtin.mode == .release_safe;
+    return builtin.mode == .debug or builtin.mode == .safe;
 }
 fn includeAllDebug() bool {
     return builtin.mode == .debug;

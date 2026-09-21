@@ -8,7 +8,7 @@ public class HelpMode : Mode
 
     public void Execute(ReadOnlySpan<string> args)
     {
-        static void ShowUsage() => Console.WriteLine($"Usage: brainfuck++ help <{string.Join("|", Mode.GetModes().Where(m => m is not HelpMode).Select(m=>m.Keyword))}>");
+        static void ShowUsage() => Console.WriteLine($"Usage: bfpp help <{string.Join("|", Mode.GetModes().Where(m => m is not HelpMode).Select(m=>m.Keyword))}>");
         if (args.Length == 0)
         {
             ShowUsage();
@@ -19,13 +19,13 @@ public class HelpMode : Mode
         {
             case "init":
                 Console.WriteLine("""
-                Usage: brainfuck++ init [path]
+                Usage: bfpp init [path]
                 Creates the project files in the current working directory or the provided path.
                 """);
                 break;
             case "build":
                 Console.WriteLine("""
-                Usage: brainfuck++ build [path] [flags]
+                Usage: bfpp build [path] [flags]
                 Builds the project.
 
                 Flags:
@@ -37,7 +37,7 @@ public class HelpMode : Mode
                 break;
             case "run":
                 Console.WriteLine("""
-                Usage: brainfuck++ run [path] [flags]
+                Usage: bfpp run [path] [flags]
                 Builds and runs the project.
 
                 Flags:

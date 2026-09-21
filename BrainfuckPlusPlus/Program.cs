@@ -7,7 +7,19 @@ namespace Brainfuck;
 
 public static class Program
 {
-
+    static string Version
+    {
+        get
+        {
+            string? infoVersion = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+            var parts = infoVersion?.Split('+');
+            return parts is { Length: 2 } && parts[1].Length > 7
+                ? $"{parts[0]}+{parts[1][..7]}"
+                : infoVersion ?? "";
+        }
+    }
     public static async Task Main(string[] args)
     {
         string? modeKeyword = args.Length > 0 ? args[0] : null;
@@ -16,15 +28,16 @@ public static class Program
 
         if (mode is null)
         {
-            Console.WriteLine("""
-            Usage: brainfuck++ <command> [options]
-
+            
+            Console.WriteLine($"""
+            bfpp version {Version}
+            Usage: bfpp <command> [options]
             Commands:
             init    Initialize a project directory
             build   Build a project
             run     Build and run a project
 
-            Run 'brainfuck++ help <command>' for more information on any command.
+            Run 'bfpp help <command>' for more information on any command.
             """);
         }
         else
