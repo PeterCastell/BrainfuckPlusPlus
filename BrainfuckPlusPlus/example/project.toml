@@ -13,12 +13,31 @@ outputs=["zig"]
 [common]
 include_comments = true
 include_formatting = true
+# Number of cells on the tape. When unset each output uses its default
+# (zig: as many cells as fit in 32 GiB of virtual memory).
+# tape_size = 30000
+# Features to leave out, for targets that don't support them.
+# Using a disabled feature is a compile error.
+# disabled_features = [
+#     "extern_functions",
+#     "threads",
+#     "mutexes",
+#     "raw_input"
+# ]
 
 # Options for generating a zig project.
 [zig]
 args=[] # Args for the zig compiler
 build_after_template = true
 cell_size = 1 # in bytes
+# "virtual": reserve the tape in virtual memory, pages are only used once touched.
+# "static": the tape is a zeroed global array; set tape_size to something that fits in RAM.
+tape_allocation = "virtual"
+# Zig compiler to build with instead of the bundled one.
+# zig_path = "/path/to/zig"
+# Folder with replacements for template.zig, build.zig, build.zig.zon or DynLib.zig,
+# relative to this file.
+# template_overrides = "zig-template"
 #   Certain failures which would stop execution by default
 #   can be ignored. Failures would simply not modify the tape.
 # ignore_error = [

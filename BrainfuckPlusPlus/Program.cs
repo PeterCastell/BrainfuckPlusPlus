@@ -39,6 +39,8 @@ public static class Program
 
             Run 'bfpp help <command>' for more information on any command.
             """);
+            if (modeKeyword is not null)
+                Environment.ExitCode = 1;
         }
         else
         {

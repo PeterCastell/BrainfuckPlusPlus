@@ -27,6 +27,19 @@ fn includeAllDebug() bool {
 
 const anyfunc = fn () callconv(.c) void;
 
+const Features = struct {
+    extern_functions: bool,
+    threads: bool,
+    mutexes: bool,
+    raw_input: bool,
+};
+
+/// Fails compilation if a program uses a feature turned off by disabled_features.
+fn requireFeature(comptime feature: []const u8) void {
+    if (!@field(EnabledFeatures, feature))
+        @compileError("The \"" ++ feature ++ "\" feature is disabled by disabled_features in the project settings");
+}
+
 pub fn IdMap(comptime T: type, comptime destroy: ?fn (val: *T) void) type {
     return if (comptime cell == u8) struct {
         data: [256]T,
@@ -112,16 +125,28 @@ pub const ManagedThread = struct {
     }
 };
 
-const TapeAllocSize = 1 << 35;
-const TapeLength = TapeAllocSize / @sizeOf(cell);
+const TapeAllocSize = TapeLength * @sizeOf(cell);
 
 var tapeMemory: [*]cell = undefined;
+var staticTape: if (StaticTapeAllocation) [TapeLength]cell else void = if (StaticTapeAllocation) @splat(0) else {};
 
 var externFuncMap = IdMap(ExternFunc, null).init(gpa);
 var threadMap = IdMap(ManagedThread, ManagedThread.detach).init(gpa);
 var MutexMap = IdMap(Mutex, null).init(gpa);
 
 fn initMemory() !void {
+    // Checked here so it's reported before the allocation code fails on the size
+    if (TapeAllocSize > std.math.maxInt(usize))
+        @compileError("Tape too large for target architecture, set a smaller tape_size");
+
+    if (StaticTapeAllocation) {
+        tapeMemory = &staticTape;
+    } else {
+        tapeMemory = @ptrCast(try allocVirtualTape());
+    }
+}
+
+fn allocVirtualTape() ![*]align(std.heap.page_size_min) u8 {
     var basePtr: [*]align(std.heap.page_size_min) u8 = undefined;
 
     switch (builtin.os.tag) {
@@ -153,7 +178,7 @@ fn initMemory() !void {
             0,
         )).ptr,
     }
-    tapeMemory = @ptrCast(basePtr[0..]);
+    return basePtr;
 }
 
 var rawModeEnabled = false;
@@ -281,7 +306,15 @@ const Context = struct {
         };
         var char: [1]u8 = @splat(0);
         while (true) {
-            _ = try std.Io.File.stdin().readPositionalAll(io, &char, 0);
+            // Streaming, not positional: stdin is often a pipe or terminal, which can't seek
+            const len = std.Io.File.stdin().readStreaming(io, &.{&char}) catch |err| switch (err) {
+                error.EndOfStream => {
+                    char[0] = 0;
+                    break;
+                },
+                else => return err,
+            };
+            if (len == 0) continue;
             if (char[0] == '\n' and S.lastWasCR) {
                 S.lastWasCR = false;
                 continue;
@@ -308,6 +341,7 @@ const Context = struct {
     }
 
     pub fn setRawInput(self: *Context) !void {
+        comptime requireFeature("raw_input");
         const enabled = self.tape().* == 0;
         enableRawMode(enabled);
     }
@@ -454,6 +488,7 @@ const Context = struct {
     }
 
     fn createExternCaller(self: *Context, line: u32, col: u32, file: []const u8) !void {
+        comptime requireFeature("extern_functions");
         var func = try externFuncMap.ensure(self.tape().*);
 
         var typeSizesBuf: [ExternFunc.MaxParamCount]u8 = @splat(0);
@@ -493,6 +528,7 @@ const Context = struct {
     }
 
     fn findExternFunction(self: *Context, line: u32, col: u32, file: []const u8) !void {
+        comptime requireFeature("extern_functions");
         const MaxScanSize = 256;
 
         var dllNameBuf: [MaxScanSize + 1:0]u8 = @splat(0);
@@ -523,6 +559,7 @@ const Context = struct {
     }
 
     fn callExternFunction(self: *Context) !void {
+        comptime requireFeature("extern_functions");
         const func = externFuncMap.get(self.tape().*) orelse try self.invalidId();
 
         const funcPtr = readTapeValue(*anyfunc, self.tapeCursor + 1);
@@ -537,20 +574,24 @@ const Context = struct {
     // === threading ops
 
     pub fn spawnThread(self: *Context, func: anytype) !void {
+        comptime requireFeature("threads");
         const id = self.tape().*;
         try threadMap.put(id, try ManagedThread.start(func, id));
     }
 
     pub fn joinThread(self: *Context) !void {
+        comptime requireFeature("threads");
         const thread = threadMap.get(self.tape().*) orelse try self.invalidId();
         thread.join();
     }
 
     pub fn createMutex(self: *Context) !void {
+        comptime requireFeature("mutexes");
         try MutexMap.put(self.tape().*, .init);
     }
 
     pub fn getMutex(self: *Context) !*Mutex {
+        comptime requireFeature("mutexes");
         return MutexMap.get(self.tape().*) orelse try self.invalidId();
     }
 
@@ -683,6 +724,16 @@ const IgnoreErrorCreateExternCaller: bool = // #c
 
 const cell = // #t
     u8;
+
+/// Number of cells on the tape
+const TapeLength: comptime_int = // #l
+    (1 << 35) / @sizeOf(cell);
+/// Static: the tape is a zeroed global. Virtual: the tape is reserved with mmap/NtAllocateVirtualMemory.
+const StaticTapeAllocation: bool = // #a
+    false;
+
+const EnabledFeatures: Features = // #d
+    .{ .extern_functions = true, .threads = true, .mutexes = true, .raw_input = true };
 
 // #g
 fn run() !u8 {
