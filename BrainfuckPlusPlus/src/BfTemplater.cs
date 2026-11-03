@@ -96,10 +96,22 @@ public static class BfTemplater
                             Emit(modify.Amount < 0 ? $"-" : $"+", Math.Abs(modify.Amount));
                         break;
                     case AST.ModifyString modify:
-                        Emit(modify.SignPositive ?
-                            $@"+""{Util.EscapeString(modify.Amounts)}""" :
-                            $@"-""{Util.EscapeString(modify.Amounts)}"""
-                        );
+                        if (bfSettings.compactOperators)
+                        {
+                            Emit(modify.SignPositive ?
+                                $@"+""{Util.EscapeString(modify.Amounts)}""" :
+                                $@"-""{Util.EscapeString(modify.Amounts)}"""
+                            );
+                            break;
+                        }
+                        var amounts = Encoding.UTF8.GetBytes(modify.Amounts);
+                        for (int i = 0; i < amounts.Length; i++)
+                        {
+                            var op = new string(modify.SignPositive ? '+' : '-', amounts[i]);
+                            Emit(i < amounts.Length - 1 ? op + ">" : op);
+                        }
+                        if (amounts.Length > 1)
+                            Emit("<", amounts.Length - 1);
                         break;
                     case AST.Move move:
                         if (bfSettings.compactOperators)
@@ -210,7 +222,7 @@ public static class BfTemplater
                         Emit("^!");
                         break;
                     case AST.SetRawInput:
-                        Emit("!.");
+                        Emit("!,");
                         break;
                     case AST.Comment comment:
                         EmitComment(comment.Content.ToString());

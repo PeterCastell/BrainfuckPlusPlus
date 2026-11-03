@@ -188,7 +188,7 @@ fn enableRawMode(enabled: bool) void {
         .windows => {
             const kernel32 = std.os.windows.kernel32;
             const DWORD = std.os.windows.DWORD;
-            const handle = std.fs.File.stdin().handle;
+            const handle = std.Io.File.stdin().handle;
 
             const ENABLE_LINE_INPUT: DWORD = 0x0002;
             const ENABLE_ECHO_INPUT: DWORD = 0x0004;
@@ -210,7 +210,7 @@ fn enableRawMode(enabled: bool) void {
         },
         else => {
             const posix = std.posix;
-            const fd = std.fs.File.stdin().handle;
+            const fd = std.Io.File.stdin().handle;
 
             const S = struct {
                 var original: posix.termios = undefined;
@@ -223,8 +223,8 @@ fn enableRawMode(enabled: bool) void {
                 var raw = S.original;
                 raw.lflag.ICANON = false;
                 raw.lflag.ECHO = false;
-                raw.cc[std.meta.Tag(posix.V.MIN)] = 1;
-                raw.cc[std.meta.Tag(posix.V.TIME)] = 0;
+                raw.cc[@intFromEnum(posix.V.MIN)] = 1;
+                raw.cc[@intFromEnum(posix.V.TIME)] = 0;
                 posix.tcsetattr(fd, .FLUSH, raw) catch return;
             } else if (!enabled and S.saved) {
                 posix.tcsetattr(fd, .FLUSH, S.original) catch return;
