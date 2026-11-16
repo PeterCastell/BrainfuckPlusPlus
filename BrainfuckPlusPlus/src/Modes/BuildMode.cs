@@ -68,13 +68,13 @@ public class BuildMode : Mode
         if (path is null)
         {
             var projFile = FindProjectFile(IO, "");
-            if (projFile is null) return;
+            if (projFile is null) { Environment.ExitCode = 1; return; }
             projSettings = LoadProject(IO, projFile);
         }
         else if (Directory.Exists(path))
         {
             var projFile = FindProjectFile(IO, path);
-            if (projFile is null) return;
+            if (projFile is null) { Environment.ExitCode = 1; return; }
             projSettings = LoadProject(IO, projFile);
         }
         else
@@ -83,7 +83,10 @@ public class BuildMode : Mode
         }
 
         if (projSettings is null)
+        {
+            Environment.ExitCode = 1;
             return;
+        }
 
 
         var mainPath = projSettings.programFile;
@@ -91,12 +94,14 @@ public class BuildMode : Mode
         if (!File.Exists(mainPath))
         {
             IO.WriteLog(@$"Main file does not exist ""{mainPath}""");
+            Environment.ExitCode = 1;
             return;
         }
         
         if (new Parser(IO).Parse(mainPath) is not AST ast)
         {
             IO.WriteErr("Build Failed");
+            Environment.ExitCode = 1;
             return;
         }
 
@@ -109,6 +114,7 @@ public class BuildMode : Mode
             if (!ZigTemplater.Template(IO, ast, projSettings, ref outputExecutable))
             {
                 IO.WriteErr("Zig Build Failed");
+                Environment.ExitCode = 1;
             }
         }
 
@@ -117,6 +123,7 @@ public class BuildMode : Mode
             if (!BfTemplater.Template(IO, ast, projSettings))
             {
                 IO.WriteErr("Bf Build Failed");
+                Environment.ExitCode = 1;
             }
         }
 

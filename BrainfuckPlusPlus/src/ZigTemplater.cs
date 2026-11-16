@@ -17,6 +17,7 @@ public static class ZigTemplater
         [TomlSingleOrArray]
         public List<string> ignoreError { get; set; } = [];
         public int cellSize { get; set; } = 1;
+        public string tapeAllocation { get; set; } = "virtual";
     }
 
     /// <summary>The zig version the templates are written for, read from minimum_zig_version in template/build.zig.zon.</summary>
@@ -147,6 +148,48 @@ public static class ZigTemplater
         return typeof(ZigTemplater).Assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)
             ?? throw new Exception($"Missing embedded template file {fileName}");
     }
+    /// <summary>
+    /// Copies a template, calling onMarker after each "#x" marker with the output stream and x.
+    /// onMarker returns true to drop the newline that follows the marker.
+    /// </summary>
+    static void TemplateFile(Stream input, Stream output, Func<Stream, char, bool> onMarker)
+    {
+        var insertFlaged = false;
+        var skipNext = false;
+        while (true)
+        {
+            var @byte = input.ReadByte();
+
+            if (@byte == -1)
+                break;
+
+            if (skipNext)
+            {
+                skipNext = false;
+                continue;
+            }
+
+            output.WriteByte((byte)@byte);
+
+            if (@byte == '#')
+                insertFlaged = true;
+
+            else if (insertFlaged)
+            {
+                insertFlaged = false;
+                output.WriteByte((byte)'\n');
+                skipNext = onMarker(output, (char)@byte);
+            }
+        }
+    }
+
+    /// <summary>Writes a value for a "#x" marker, commenting out the template's placeholder on the next line.</summary>
+    static bool EmitValue(Stream stream, string value)
+    {
+        stream.Write(Encoding.UTF8.GetBytes($"{value}; //"));
+        return true;
+    }
+
     static string StringLitteral(StringSlice? slice)
     {
         return slice.HasValue ? @$"""{EscapeString(slice.Value)}""" : "null";
@@ -169,6 +212,29 @@ public static class ZigTemplater
             IO.WriteErr("Zig config error: Cell size must be 1, 2, 4, or 8");
             return false;
         }
+
+        if (zigSettings.tapeAllocation is not ("virtual" or "static"))
+        {
+            IO.WriteErr(@$"Zig config error: Unknown tape allocation ""{zigSettings.tapeAllocation}"", must be ""virtual"" or ""static""");
+            return false;
+        }
+
+        if (zigSettings.TapeSize is <= 0)
+        {
+            IO.WriteErr("Zig config error: Tape size must be greater than 0");
+            return false;
+        }
+
+        foreach (var feature in zigSettings.disabledFeatures)
+        {
+            if (!CommonSettings.Features.Contains(feature))
+            {
+                IO.WriteErr(@$"Zig config error: Unknown feature ""{feature}"" in disabled features");
+                IO.WriteErr(@$"Only [{string.Join(", ", CommonSettings.Features)}] are allowed");
+                return false;
+            }
+        }
+        bool FeatureEnabled(string feature) => !zigSettings.disabledFeatures.Contains(feature);
 
 
         void EmitLine(Stream stream, int indent, string line)
@@ -193,7 +259,7 @@ public static class ZigTemplater
                     case AST.FileEmbed embed:
                         if (zigSettings.includeComments)
                             Emit(@$"// {EscapeString(embed.FilePath)}");
-                        Emit(@$"const embed{embed.Id}: [*]const u8 = @embedFile(""embeded\\embed{embed.Id}"");");
+                        Emit(@$"const embed{embed.Id}: [*]const u8 = @embedFile(""embeded/embed{embed.Id}"");");
                         break;
                     
                     case AST.Function function:
@@ -416,61 +482,42 @@ public static class ZigTemplater
             File.Copy(fileEmbed.FilePath, Path.Join(embedFolder, "embed" + fileEmbed.Id));
         }
 
-        var insertFlaged = false;
-        var skipNext = false;
-        while (true)
+        TemplateFile(templateStream, fileStream, (stream, marker) =>
         {
-            var @byte = templateStream.ReadByte();
-
-            if (@byte == -1)
-                break;
-
-            if (skipNext)
+            switch (marker)
             {
-                skipNext = false;
-                continue;
+                case 'g':
+                    EmitGlobals(stream);
+                    return false;
+
+                case 'm':
+                    EmitContext(stream, ast.body, 1);
+                    if (!ast.ReturnIncluded)
+                        EmitLine(stream, 1,"return 0;");
+                    stream.Write(Encoding.UTF8.GetBytes($" //"));
+                    return true;
+
+                case 'f':
+                    return EmitValue(stream, zigSettings.ignoreError.Contains("findExternFunction") ? "true" : "false");
+
+                case 'c':
+                    return EmitValue(stream, zigSettings.ignoreError.Contains("createExternCaller") ? "true" : "false");
+
+                case 't':
+                    return EmitValue(stream, GetSizeTypeString(zigSettings.cellSize)!);
+
+                case 'l':
+                    return EmitValue(stream, zigSettings.TapeSize is long tapeSize ? tapeSize.ToString() : "(1 << 35) / @sizeOf(cell)");
+
+                case 'a':
+                    return EmitValue(stream, zigSettings.tapeAllocation == "static" ? "true" : "false");
+
+                case 'd':
+                    return EmitValue(stream, ".{ " + string.Join(", ", CommonSettings.Features.Select(
+                        feature => $".{feature} = {(FeatureEnabled(feature) ? "true" : "false")}")) + " }");
             }
-
-            fileStream.WriteByte((byte)@byte);
-
-            if (@byte == '#')
-                insertFlaged = true;
-
-            else if (insertFlaged)
-            {
-                insertFlaged = false;
-                fileStream.WriteByte((byte)'\n');
-                switch (@byte)
-                {
-                    case 'g':
-                        EmitGlobals(fileStream);
-                        break;
-
-                    case 'm':
-                        EmitContext(fileStream, ast.body, 1);
-                        if (!ast.ReturnIncluded)
-                            EmitLine(fileStream, 1,"return 0;");
-                        fileStream.Write(Encoding.UTF8.GetBytes($" //"));
-                        skipNext = true;
-                        break;
-
-                    case 'f':
-                        fileStream.Write(Encoding.UTF8.GetBytes($"{(zigSettings.ignoreError.Contains("findExternFunction") ? "true" : "false")}; //"));
-                        skipNext = true;
-                        break;
-                    
-                    case 'c':
-                        fileStream.Write(Encoding.UTF8.GetBytes($"{(zigSettings.ignoreError.Contains("createExternCaller") ? "true" : "false")}; //"));
-                        skipNext = true;
-                        break;
-                    
-                    case 't':
-                        fileStream.Write(Encoding.UTF8.GetBytes($"{GetSizeTypeString(zigSettings.cellSize)}; //"));
-                        skipNext = true;
-                        break;
-                }
-            }
-        }
+            return false;
+        });
 
         fileStream.Close();
 
@@ -480,7 +527,17 @@ public static class ZigTemplater
             using var dest = File.Create(Path.Join(projSettings.projectDir, "build-zig", name));
             source.CopyTo(dest);
         }
-        CopyFile("build.zig");
+
+        // build.zig has its own markers to fill in
+        using (var buildTemplateStream = new BufferedStream(OpenTemplateFile(overrideDir, "build.zig")))
+        using (var buildStream = File.Create(Path.Join(projSettings.projectDir, "build-zig", "build.zig")))
+        {
+            TemplateFile(buildTemplateStream, buildStream, (stream, marker) => marker switch
+            {
+                'e' => EmitValue(stream, FeatureEnabled("extern_functions") ? "true" : "false"),
+                _ => false
+            });
+        }
         CopyFile("build.zig.zon");
         CopyFile("DynLib.zig");
         IO.WriteLog("Zig Template Completed");

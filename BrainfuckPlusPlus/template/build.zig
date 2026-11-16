@@ -1,5 +1,9 @@
 const std = @import("std");
 
+/// Links libffi, which the extern function operators need
+const extern_functions: bool = // #e
+    true;
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -13,17 +17,19 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const libffi = b.dependency("libffi", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    if (extern_functions) {
+        if (b.lazyDependency("libffi", .{
+            .target = target,
+            .optimize = optimize,
+        })) |libffi| {
+            exe.root_module.addImport("ffi", libffi.module("ffi"));
 
-    exe.root_module.addImport("ffi", libffi.module("ffi"));
-
-    if (b.systemIntegrationOption("ffi", .{})) {
-        exe.root_module.linkSystemLibrary("ffi", .{});
-    } else {
-        exe.root_module.linkLibrary(libffi.artifact("ffi"));
+            if (b.systemIntegrationOption("ffi", .{})) {
+                exe.root_module.linkSystemLibrary("ffi", .{});
+            } else {
+                exe.root_module.linkLibrary(libffi.artifact("ffi"));
+            }
+        }
     }
 
     b.installArtifact(exe);

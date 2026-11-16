@@ -32,6 +32,7 @@ public class RunMode : Mode
             if (proc is null)
             {
                 result.IO.WriteLog("Failed to run build output");
+                Environment.ExitCode = 1;
                 return;
             }
 
@@ -42,6 +43,7 @@ public class RunMode : Mode
             };
 
             proc.WaitForExit();
+            Environment.ExitCode = proc.ExitCode;
         }, allowRedirectLaunch: true);
     }
 }
