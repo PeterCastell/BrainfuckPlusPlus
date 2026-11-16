@@ -1,12 +1,7 @@
 using System;
 using System.Diagnostics;
-using System.IO.Compression;
-using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using Tomlyn.Serialization;
-
-using Arch = System.Runtime.InteropServices.Architecture;
 
 namespace Brainfuck;
 
@@ -15,33 +10,99 @@ public static class ZigTemplater
 
     public class ZigSettings : CommonSettings
     {
-        public string? zigPath;
+        public string? zigPath { get; set; }
         public List<string> args { get; set; } = [];
         public bool buildAfterTemplate { get; set; } = true;
-        public string? templateOverrides;
+        public string? templateOverrides { get; set; }
         [TomlSingleOrArray]
         public List<string> ignoreError { get; set; } = [];
         public int cellSize { get; set; } = 1;
     }
 
-    static readonly string ZigPrefix = "zig-";
-    static readonly string ZigSuffix = "-0.17.0-dev.1676+c9dc9b798";
+    /// <summary>The zig version the templates are written for, read from minimum_zig_version in template/build.zig.zon.</summary>
+    public static readonly string ZigVersion = ReadZigVersion();
 
-    static string ZigString => $"{ZigPrefix}{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch {
-        Arch.X86 => "x86",
-        Arch.X64 => "x86_64",
-        Arch.Arm64 => "aarch64",
-        Arch.RiscV64 => "riscv64",
-        Arch arch => throw new Exception($"Unsupported architecture {arch}"),
-    }}-{false switch {
-        _ when OperatingSystem.IsWindows() => "windows",
-        _ when OperatingSystem.IsMacOS() => "macos",
-        _ when OperatingSystem.IsLinux() => "linux",
-        _ when OperatingSystem.IsFreeBSD() => "freebsd",
-        _ => throw new Exception($"Unsupported OS {System.Runtime.InteropServices.RuntimeInformation.OSDescription}"),
-    }}{ZigSuffix}";
+    static string ReadZigVersion()
+    {
+        using var stream = OpenTemplateFile(null, "build.zig.zon");
+        var zon = new StreamReader(stream).ReadToEnd();
+        var match = System.Text.RegularExpressions.Regex.Match(zon, @"\.minimum_zig_version\s*=\s*""([^""]+)""");
+        return match.Success ? match.Groups[1].Value : "unknown";
+    }
+
+    /// <summary>Environment variable that can point at a zig executable.</summary>
+    public static readonly string ZigPathEnvVar = "BFPP_ZIG";
 
     static readonly string ExeSuffix = OperatingSystem.IsWindows() ? ".exe" : "";
+    static readonly string ZigExeName = $"zig{ExeSuffix}";
+
+    /// <summary>
+    /// Finds the zig executable. Search order:
+    /// 1. zig_path in the project's [zig] config (relative to the project directory)
+    /// 2. the BFPP_ZIG environment variable
+    /// 3. zig/zig next to the compiler (the "with zig" release layout)
+    /// 4. zig on the PATH
+    /// </summary>
+    static string? FindZig(BuildIO IO, ZigSettings zigSettings, string projectDir)
+    {
+        if (!string.IsNullOrWhiteSpace(zigSettings.zigPath))
+            return ResolveExplicit(Path.Combine(projectDir, zigSettings.zigPath), "zig_path in project config");
+
+        if (Environment.GetEnvironmentVariable(ZigPathEnvVar) is { } envPath && !string.IsNullOrWhiteSpace(envPath))
+            return ResolveExplicit(envPath, $"{ZigPathEnvVar} environment variable");
+
+        var exeDir = AppContext.BaseDirectory;
+        var bundled = Path.Combine(exeDir, "zig", ZigExeName);
+        if (File.Exists(bundled))
+            return bundled;
+
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(dir.Trim('"'), ZigExeName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        IO.WriteErr($"Could not find zig {ZigVersion}. Do one of the following:");
+        IO.WriteErr($"  - download the release of bfpp that comes with zig");
+        IO.WriteErr($"  - set the {ZigPathEnvVar} environment variable to a zig executable");
+        IO.WriteErr($"  - set zig_path under [zig] in the project config");
+        IO.WriteErr($"  - put zig on your PATH");
+        return null;
+
+        // An explicitly configured path may be the executable itself or the folder containing it.
+        string? ResolveExplicit(string path, string source)
+        {
+            if (Directory.Exists(path))
+                path = Path.Combine(path, ZigExeName);
+            if (File.Exists(path))
+                return Path.GetFullPath(path);
+            IO.WriteErr(@$"Zig executable from {source} does not exist: ""{path}""");
+            return null;
+        }
+    }
+
+    /// <summary>Warns when the zig found doesn't match the version the templates were written for.</summary>
+    static void CheckZigVersion(BuildIO IO, string zigExecutable)
+    {
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo(zigExecutable)
+            {
+                ArgumentList = { "version" },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            })!;
+            var version = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit();
+            if (version != ZigVersion)
+                IO.WriteLog(@$"Warning: zig at ""{zigExecutable}"" is version {version}, but bfpp expects {ZigVersion}. The build may fail.");
+        }
+        catch (Exception e)
+        {
+            IO.WriteLog($"Warning: could not check zig version: {e.Message}");
+        }
+    }
 
     static string GetTypeString(AST.Type type) => type switch
     {
@@ -62,7 +123,7 @@ public static class ZigTemplater
         AST.Type.CULong => "c_ulong",
         AST.Type.CLong => "c_long",
         AST.Type.CLongDouble => "c_longdouble",
-        AST.Type.ISize => "size",
+        AST.Type.ISize => "isize",
         AST.Type.USize => "usize",
         AST.Type.Cell => "cell",
         _ => throw new Exception("Invalid Type")
@@ -78,48 +139,13 @@ public static class ZigTemplater
     };
 
     static string EscapeString(ReadOnlySpan<char> text) => Util.EscapeString(text, @"\u{0}");
-    static void CreateLocalZigFiles(BuildIO IO)
+    /// <summary>Opens a template file, preferring the project's override directory over the embedded copy.</summary>
+    static Stream OpenTemplateFile(string? overrideDir, string fileName)
     {
-        var assembly = typeof(ZigTemplater).Assembly;
-        var localPath = Path.GetDirectoryName(AppContext.BaseDirectory)!;
-
-        var localZigPath = Path.Combine(localPath, "zig");
-
-        if (!Directory.Exists(localZigPath))
-            Directory.CreateDirectory(localZigPath);
-
-        if (!Directory.Exists(Path.Combine(localZigPath, ZigString)))
-        {
-            IO.WriteLog($"Unpacking zig from {ZigString}...");
-            if (OperatingSystem.IsWindows())
-            {
-                using var zip = new ZipArchive(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.zip")!);
-
-                zip.ExtractToDirectory(localZigPath);
-            } else {
-                Util.ExtractTarXz(assembly.GetManifestResourceStream($"BrainfuckPlusPlus.template.{ZigString}.tar.xz")!, localZigPath);
-            }
-        }
-        
-        CreateFile("build.zig");
-        CreateFile("build.zig.zon");
-        CreateFile("template.zig");
-        CreateFile("DynLib.zig");
-        
-        void CreateFile(string fileName)
-        {
-            var path = Path.Combine(localZigPath, fileName);
-            using var resourceStream = assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)!;
-            if (File.Exists(path)) {
-                using var fileRStream = File.OpenRead(path);
-                if (SHA256.HashData(fileRStream).SequenceEqual(SHA256.HashData(resourceStream)))
-                    return;
-                resourceStream.Seek(0, SeekOrigin.Begin);
-            }
-            using var fileStream = File.Create(path);
-            resourceStream.CopyTo(fileStream);
-            IO.WriteLog($"Resource file {fileName} has been extracted.");
-        }
+        if (overrideDir != null && File.Exists(Path.Join(overrideDir, fileName)))
+            return File.OpenRead(Path.Join(overrideDir, fileName));
+        return typeof(ZigTemplater).Assembly.GetManifestResourceStream("BrainfuckPlusPlus.template." + fileName)
+            ?? throw new Exception($"Missing embedded template file {fileName}");
     }
     static string StringLitteral(StringSlice? slice)
     {
@@ -322,12 +348,12 @@ public static class ZigTemplater
                             Emit($"ctx.writeReference(&arg{getFuncParam.Index});");
                             break;
                         case AST.GetMainParam getMainParam:
-                            Emit($"ctx.writeReference(&{getMainParam.Index switch
+                            Emit($"ctx.writeReference(@ptrCast(&{getMainParam.Index switch
                             {
-                                0 => "mainArgs.len",
-                                1 => "mainArgs.ptr",
+                                0 => "mainArgc",
+                                1 => "mainArgv",
                                 _ => null
-                            }});");
+                            }}));");
                             break;
                         case AST.Return @return:
                             if (@return.Type is AST.Type.Void)
@@ -365,16 +391,17 @@ public static class ZigTemplater
         
         var overrideDir = zigSettings.templateOverrides != null ? Path.Combine(projSettings.projectDir, zigSettings.templateOverrides) : null;
 
-        CreateLocalZigFiles(IO);
+        // Resolve zig before templating so a missing zig fails fast.
+        string? zigExecutable = null;
+        if (zigSettings.buildAfterTemplate)
+        {
+            zigExecutable = FindZig(IO, zigSettings, projSettings.projectDir);
+            if (zigExecutable is null)
+                return false;
+            CheckZigVersion(IO, zigExecutable);
+        }
 
-        var assembly = typeof(ZigTemplater).Assembly;
-        var localZigPath = Path.Combine(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig");
-
-        string? templateFile = null;
-        if (overrideDir != null && File.Exists(Path.Join(overrideDir, "template.zig")))
-            templateFile = Path.Join(overrideDir, "template.zig");
-        
-        using var templateStream = File.OpenRead(templateFile ?? Path.Join(localZigPath, "template.zig"));
+        using var templateStream = new BufferedStream(OpenTemplateFile(overrideDir, "template.zig"));
 
         Directory.CreateDirectory(Path.Join(projSettings.projectDir, "build-zig"));
         var fileStream = File.Create(Path.Join(projSettings.projectDir, "build-zig/template.zig"));
@@ -449,20 +476,17 @@ public static class ZigTemplater
 
 
         void CopyFile(string name) {
-            string? templateFile = null;
-            if (overrideDir != null && File.Exists(Path.Join(overrideDir, name)))
-                templateFile = Path.Join(overrideDir, name);
-            
-            File.Copy(templateFile ?? Path.Join(localZigPath, name), Path.Join(projSettings.projectDir, "build-zig/" + name), true);
+            using var source = OpenTemplateFile(overrideDir, name);
+            using var dest = File.Create(Path.Join(projSettings.projectDir, "build-zig", name));
+            source.CopyTo(dest);
         }
         CopyFile("build.zig");
         CopyFile("build.zig.zon");
         CopyFile("DynLib.zig");
         IO.WriteLog("Zig Template Completed");
 
-        if (zigSettings.buildAfterTemplate)
+        if (zigExecutable is not null)
         {
-            var zigExecutable = zigSettings.zigPath ?? Path.Join(Path.GetDirectoryName(AppContext.BaseDirectory)!, "zig", ZigString, $"zig{ExeSuffix}");
             try
             {
                 var procInfo = new ProcessStartInfo(zigExecutable)

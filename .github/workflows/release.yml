@@ -1,0 +1,144 @@
+# Builds bfpp for every platform and publishes a GitHub release.
+#
+# Trigger a release by pushing a version tag:
+#   git tag v1.4.0
+#   git push origin v1.4.0
+#
+# Each platform gets two downloads:
+#   bfpp-<version>-<rid>.zip/.tar.gz           compiler only (zig must be installed separately)
+#   bfpp-<version>-<rid>-with-zig.zip/.tar.gz  compiler with zig in a "zig" folder next to it
+#
+# The zig version comes from minimum_zig_version in BrainfuckPlusPlus/template/build.zig.zon.
+# Zig is downloaded from a ziglang.org community mirror and checked against the SHA-256 published
+# in ziglang.org/download/index.json (see .github/scripts/fetch_zig.py).
+#
+# You can also run this workflow by hand from the Actions tab ("Run workflow").
+# A manual run builds and uploads the archives as workflow artifacts but does not create a release.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  build:
+    name: Build ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            zig: x86_64-windows
+          - rid: linux-x64
+            os: ubuntu-latest
+            zig: x86_64-linux
+          # macOS builds run on a Mac so the binaries get code signed (required on Apple Silicon).
+          - rid: osx-x64
+            os: macos-latest
+            zig: x86_64-macos
+          - rid: osx-arm64
+            os: macos-latest
+            zig: aarch64-macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Work out version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"      # v1.4.0 -> 1.4.0
+          else
+            version="0.0.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          zig_version=$(sed -n 's/.*minimum_zig_version *= *"\([^"]*\)".*/\1/p' BrainfuckPlusPlus/template/build.zig.zon)
+          [[ -n "$zig_version" ]] || { echo "minimum_zig_version not found in build.zig.zon"; exit 1; }
+          echo "Zig version: $zig_version"
+          echo "zig=$zig_version" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify zig
+        run: python .github/scripts/fetch_zig.py "${{ steps.version.outputs.zig }}" "${{ matrix.zig }}" zig-download
+
+      - name: Publish compiler
+        run: >
+          dotnet publish BrainfuckPlusPlus/BrainfuckPlusPlus.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      - name: Package
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          exe=bfpp
+          [[ "$RID" == win-* ]] && exe=bfpp.exe
+
+          name="bfpp-${VERSION}-${RID}"
+          mkdir -p dist "stage/$name" "stage/$name-with-zig"
+
+          # Compiler only
+          cp "publish/$exe" LICENSE.txt "stage/$name/"
+
+          # Compiler + zig, with zig unpacked into a folder named "zig"
+          cp "publish/$exe" LICENSE.txt "stage/$name-with-zig/"
+          mv zig-download "stage/$name-with-zig/zig"
+
+          # Windows gets .zip, everything else .tar.gz (keeps the executable permission)
+          cd stage
+          if [[ "$RID" == win-* ]]; then
+            7z a -tzip "../dist/$name.zip" "$name" > /dev/null
+            7z a -tzip "../dist/$name-with-zig.zip" "$name-with-zig" > /dev/null
+          else
+            tar -czf "../dist/$name.tar.gz" "$name"
+            tar -czf "../dist/$name-with-zig.tar.gz" "$name-with-zig"
+          fi
+          ls -la ../dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bfpp-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes

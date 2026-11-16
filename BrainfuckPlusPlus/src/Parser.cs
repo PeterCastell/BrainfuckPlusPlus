@@ -878,7 +878,7 @@ public class Parser(BuildIO IO)
                             if (childToken.Token is NamedEntity { IsExporting: true } exEntity && exEntity.Name == name)
                                 return exEntity;
 
-                            if (childToken.Token is ASTLink { IsExporting: true } exLink)
+                            if (childToken.Token is ASTLink { IsExporting: true } exLink && exLink.Target.Name == name)
                                 return exLink.Target;
                         }
                     }

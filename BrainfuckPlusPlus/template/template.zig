@@ -161,9 +161,14 @@ fn enableRawMode(enabled: bool) void {
     rawModeEnabled = enabled;
     switch (comptime builtin.os.tag) {
         .windows => {
-            const kernel32 = std.os.windows.kernel32;
-            const DWORD = std.os.windows.DWORD;
-            const handle = std.fs.File.stdin().handle;
+            const windows = std.os.windows;
+            const DWORD = windows.DWORD;
+            // std no longer declares the console mode functions, so declare them here.
+            const kernel32 = struct {
+                extern "kernel32" fn GetConsoleMode(hConsoleHandle: windows.HANDLE, lpMode: *DWORD) callconv(.winapi) windows.BOOL;
+                extern "kernel32" fn SetConsoleMode(hConsoleHandle: windows.HANDLE, dwMode: DWORD) callconv(.winapi) windows.BOOL;
+            };
+            const handle = std.Io.File.stdin().handle;
 
             const ENABLE_LINE_INPUT: DWORD = 0x0002;
             const ENABLE_ECHO_INPUT: DWORD = 0x0004;
@@ -174,18 +179,18 @@ fn enableRawMode(enabled: bool) void {
             };
 
             if (enabled and !S.saved) {
-                if (kernel32.GetConsoleMode(handle, &S.original) == 0) return;
+                if (!kernel32.GetConsoleMode(handle, &S.original).toBool()) return;
                 S.saved = true;
                 const raw = S.original & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
-                if (kernel32.SetConsoleMode(handle, raw) == 0) return;
+                if (!kernel32.SetConsoleMode(handle, raw).toBool()) return;
             } else if (!enabled and S.saved) {
-                if (kernel32.SetConsoleMode(handle, S.original) == 0) return;
+                if (!kernel32.SetConsoleMode(handle, S.original).toBool()) return;
                 S.saved = false;
             }
         },
         else => {
             const posix = std.posix;
-            const fd = std.fs.File.stdin().handle;
+            const fd = std.Io.File.stdin().handle;
 
             const S = struct {
                 var original: posix.termios = undefined;
@@ -198,8 +203,8 @@ fn enableRawMode(enabled: bool) void {
                 var raw = S.original;
                 raw.lflag.ICANON = false;
                 raw.lflag.ECHO = false;
-                raw.cc[std.meta.Tag(posix.V.MIN)] = 1;
-                raw.cc[std.meta.Tag(posix.V.TIME)] = 0;
+                raw.cc[@intFromEnum(posix.V.MIN)] = 1;
+                raw.cc[@intFromEnum(posix.V.TIME)] = 0;
                 posix.tcsetattr(fd, .FLUSH, raw) catch return;
             } else if (!enabled and S.saved) {
                 posix.tcsetattr(fd, .FLUSH, S.original) catch return;
@@ -469,7 +474,7 @@ const Context = struct {
             func.paramTypes[i] = getFFIType(typeSizes[i + 1]) catch |err| {
                 if (comptime !includeAllDebug())
                     std.debug.print("{s} ({d}, {d}): type index out of bounds for argument {d}\n", .{ file, line, col, i + 1 });
-                if (IgnoreErrorFindExternFunction)
+                if (IgnoreErrorCreateExternCaller)
                     return;
                 return err;
             };
@@ -651,6 +656,9 @@ inline fn discard(x: anytype) void {
 }
 
 var mainArgs: []const [:0]const u8 = undefined;
+/// C-style argc/argv, exposed to programs through $*0 and $*1 outside of functions.
+var mainArgc: usize = 0;
+var mainArgv: [*:null]const ?[*:0]const u8 = undefined;
 
 var io: Io = undefined;
 
@@ -667,8 +675,14 @@ pub fn main(init: std.process.Init) !void {
 
     io = init.io;
 
-    mainArgs = try init.minimal.args.toSlice(gpa);
-    defer gpa.free(mainArgs);
+    // Args live for the whole program, so they go in the process arena (freed on exit).
+    const arena = init.arena.allocator();
+    mainArgs = try init.minimal.args.toSlice(arena);
+
+    const argv = try arena.allocSentinel(?[*:0]const u8, mainArgs.len, null);
+    for (mainArgs, argv) |arg, *out| out.* = arg.ptr;
+    mainArgc = mainArgs.len;
+    mainArgv = argv.ptr;
 
     try initMemory();
     const code = try run();

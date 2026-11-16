@@ -19,18 +19,11 @@
     <EmbeddedResource Include="example\project.toml" />
     <EmbeddedResource Include="example\main.bfpp" />
     <EmbeddedResource Include="example\reference.md" />
-
-    <!-- Zig compiler. Platform specific. -->
-    <EmbeddedResource Include="template\zig-aarch64-macos-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
-    <EmbeddedResource Include="template\zig-x86_64-linux-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
-    <EmbeddedResource Include="template\zig-x86_64-macos-*.tar.xz" Condition="'$(RuntimeIdentifier)' == 'osx-x64'" />
-    <EmbeddedResource Include="template\zig-x86_64-windows-*.zip" Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
     <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
-    <PackageReference Include="SharpCompress" Version="0.50.4" />
     <PackageReference Include="System.CommandLine" Version="2.0.8" />
     <PackageReference Include="Tomlyn" Version="2.3.2" />
   </ItemGroup>

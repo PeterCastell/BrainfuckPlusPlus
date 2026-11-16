@@ -17,7 +17,7 @@ A Brainfuck program consists of three basic elements.
 
 # Standard Brainfuck Operators
 
-Brainfuck as it's widely known contains 9 operators:
+Brainfuck as it's widely known contains 8 operators:
 
 |OP | Description|
 |:-:|---
@@ -41,13 +41,13 @@ A simple demo to echo text back to the terminal.
     -       # set the looping flag to zero
     >>      # move to cell 2
     [>]     # move to the end of the sequence characters
-    >>+<<   # set a barrier two cells after the equence of characterss
+    >>+<<   # set a barrier two cells after the sequence of characters
     ,       # read input from the terminal to the end of the sequence
     -'\n'   # subtract 10 (ascii for line feed) from the input
     [       # if the input is non-zero (if input != newline)
         [<]<    # move back to the looping flag
         +       # restore the looping flag to one
-        >>[>]   # move to empty cell after the squence
+        >>[>]   # move to empty cell after the sequence
         # The tape and cursor are now in one of two states:
         #
         # If the character was a newline:
@@ -74,24 +74,23 @@ A simple demo to echo text back to the terminal.
     [<] # in the case that the cursor is on the barrier,
         #   it moves left to align with the other case
     >- # clear the barrier cell
-    < +'\n' # add 10 back to to input to restore it
+    << +'\n' # add 10 back to the input to restore it
     [<]< # return back to the loop flag to setup for the next loop
 ] # if the last inputted character was a newline, the loop flag was cleared and the loop will end here
->> # move to the start of the character squence
+>> # move to the start of the character sequence
 [.>] # print and move along each character
 ```
 
 ### Conventions
-The [Brainfuck wiki page](https://esolangs.org/wiki/Brainfuck#Extensions) specifies conventions on how interpreters should behave. This sections goes over adherance tho those conventions.
+The [Brainfuck wiki page](https://esolangs.org/wiki/Brainfuck#Extensions) specifies conventions on how interpreters should behave. This section goes over adherence to those conventions.
 * Memory - All conventions are followed.
 * IO - Line buffered by default; OS newlines are converted to `10`, but not vice versa.
 * EOF - Cell remains unchanged on EOF.
 * Character set - Uses native character set.
-* 
 
 # Brainfuck++
 
-The Brainfuck++ parser is able to parse any* standard Brainfuck program while also providing aditional syntax and operators to make more programs possible. \
+The Brainfuck++ parser is able to parse any* standard Brainfuck program while also providing additional syntax and operators to make more programs possible. \
 <small>\*The Brainfuck++ parser will not ignore non-operator characters like standard Brainfuck parsers.</small>
 
 ### Comments
@@ -150,7 +149,7 @@ Like the numerable operators, omitting the number defaults to one, executing the
 
 ### Delays
 Some programs need to be able to wait for a duration or maintain a constant framerate.
-The delay operator enables this by waiting until a specified amount of time has passed since the last time a delay operator was executed. Delays are defined as an exclaimation mark `!` optionally followed by a number of milliseconds. Unlike numberable operators, omitting the number defaults to zero milliseconds. In other words, this immediately resets the saved last time to now. When the program starts, it initializes the saved last time to now.
+The delay operator enables this by waiting until a specified amount of time has passed since the last time a delay operator was executed. Delays are defined as an exclamation mark `!` optionally followed by a number of milliseconds. Unlike numerable operators, omitting the number defaults to zero milliseconds. In other words, this immediately resets the saved last time to now. When the program starts, it initializes the saved last time to now.
 ```bfpp
 ... # Code that takes time
 
@@ -159,7 +158,7 @@ The delay operator enables this by waiting until a specified amount of time has 
 
 ... # More code that takes time
 
-!!100 # Waits for an absolute 100 millseconds from now
+!!100 # Waits for an absolute 100 milliseconds from now
 # (Two separate waits; first immediately resets timer, and second pauses)
 
 + [ # This loop regulates itself to 50 ms per cycle regardless
@@ -170,7 +169,7 @@ The delay operator enables this by waiting until a specified amount of time has 
 ```
 
 ### Input Mode
-By default, input from the console isn't readable until enter is pressed, and any input the user gives is visibly written. In the case that this isn't desirable, the **Input Mode** operator is the solution. Defined by an exclaimation mark and a comma `!,`, it reads the current cell for the input mode. If the cell is zero, it switches to raw mode where the input is not echoed and is unbuffered. If the cell is non-zero, it switches to buffered mode (the default).
+By default, input from the console isn't readable until enter is pressed, and any input the user gives is visibly written. In the case that this isn't desirable, the **Input Mode** operator is the solution. Defined by an exclamation mark and a comma `!,`, it reads the current cell for the input mode. If the cell is zero, it switches to raw mode where the input is not echoed and is unbuffered. If the cell is non-zero, it switches to buffered mode (the default).
 
 
 ### Referencing
@@ -198,6 +197,7 @@ The write to reference operator is a backtick `` ` `` and allows for storing dat
 |!,| Switches input mode
 |*| Writes the address of the cursor to the tape
 |~| Reads a byte at the address on the tape
+|`| Writes a byte to the address on the tape
 
 ## Macros
 Macros fix the problem of writing the same code over and over again.
@@ -365,7 +365,7 @@ clear_n_cells(lambda a:
 ```
 
 ### Backtracking
-Multiple macros with the same name cannot be created in the same scope, but names can be overridden in child scopes. Scope **backtracking** can be used to differentiate between these identical names. **Backtracking** is the process of starting the search for a name in an outerscope instead of the current one. This skips over locally defined macros with names that override macros in outer scopes. This isn't terribly useful with regular macros, but it's essential in differentiating parameters across multiple visible scopes, all with their own parameters.
+Multiple macros with the same name cannot be created in the same scope, but names can be overridden in child scopes. Scope **backtracking** can be used to differentiate between these identical names. **Backtracking** is the process of starting the search for a name in an outer scope instead of the current one. This skips over locally defined macros with names that override macros in outer scopes. This isn't terribly useful with regular macros, but it's essential in differentiating parameters across multiple visible scopes, all with their own parameters.
 
 ```bfpp
 &foo (+++)
@@ -424,7 +424,7 @@ $foo ({4 $0 })
 ```
 Backtracking can also work for export operators and can be repeated to backtrack multiple levels by adding more dollar signs. (`$$$$foo` can be valid)
 
-One oddity with how macros are implented is that macros defined directly are visible before their definitions, but macros exported through invocations are only visible only after the relevant function call.
+One oddity with how macros are implemented is that macros defined directly are visible before their definitions, but macros exported through invocations are only visible after the relevant invocation.
 ```bfpp
 # bar hasn't been exported yet
 $bar # COMPILE ERROR: Macro "bar" cannot be found
@@ -443,11 +443,11 @@ $bar # bar is visible after it's exported from foo
 ```
 
 ### Built-in Macros
-Built-in macros are like regular macros, except they accomplish more complicated tasks related to project and file management. Invoking a builtin-macro requires exacly one parameter which must be a string. Built-in macros cannot have their names overridden in any scope.
+Built-in macros are like regular macros, except they accomplish more complicated tasks related to project and file management. Invoking a built-in macro requires exactly one parameter which must be a string. Built-in macros cannot have their names overridden in any scope.
 
 |Builtin|Description
 |---|---
-|import|Invokes the contents of another bfpp source file, treating like one big macro being invoked.
+|import|Invokes the contents of another bfpp source file, treating it like one big macro being invoked.
 |embed_file|Embeds a file into the output binary, writing the memory address of the file's data to the tape.
 
 ```bfpp
@@ -516,13 +516,13 @@ Prints the positions and values of multiple consecutive cells.
 # |0  |0  |0  |0  |0  |0  |0  |0  |
 ```
 #### Debug Quit
-An at sign and an exclaimation mark `@!` \
+An at sign and an exclamation mark `@!` \
 Simply stops the program
 ```bfpp
 @!
 ```
 #### Debug Relative Assert
-Debug asserts also have a variant for macros where check test relative to where the macro started. They (sadly) do not support backtracking.
+Debug asserts also have a variant for macros that check relative to where the macro started. They (sadly) do not support backtracking.
 ```bfpp
 &foo (
     < +
@@ -542,13 +542,13 @@ All debug operators can optionally be followed by a string to add a message to t
 # Prints the message after the value
 @.2"Value of lorem ipsum"
 
-# Can also just print and no nothing else
+# Can also just print and do nothing else
 @"This code just ran"
 ```
 
 ### Disabling Debug
 Debug operators are disabled by certain options in the project file. \
-When emitting bf, debug operators can be exluded from the output by adding this to the project toml config.
+When emitting bf, debug operators can be excluded from the output by adding this to the project toml config.
 ```toml
 [bf]
 include_debug_operators=false
@@ -576,10 +576,10 @@ args=["-Doptimize=<mode>"]
 |@""| Print
 
 ## IDs
-Before the last few sections, it's important to specify what an **ID** is. **IDs** are numbers that represent a value at runtime, unlike **names** which represent something at compile time. **IDs** are like slots and over the course of a program's execution certain types of values can be written to and read from those slots. There are as many ID slots as can be represented by one cell. Re-writing to the same **ID** deletes the preview value and reading from an unwritten **ID** stops the program. Each type of storable value has its own ID space, so the same **ID** can represent multiple different values of different types.
+Before the last few sections, it's important to specify what an **ID** is. **IDs** are numbers that represent a value at runtime, unlike **names** which represent something at compile time. **IDs** are like slots and over the course of a program's execution certain types of values can be written to and read from those slots. There are as many ID slots as can be represented by one cell. Re-writing to the same **ID** deletes the previous value and reading from an unwritten **ID** stops the program. Each type of storable value has its own ID space, so the same **ID** can represent multiple different values of different types.
 
 ## Extern Functions
-In order for bfpp programs to interoperate with the rest of the computer, it needs to be able to call functions in other binaries. This is what Extern Operators are for.\
+In order for bfpp programs to interoperate with the rest of the computer, they need to be able to call functions in other binaries. This is what Extern Operators are for.\
 To call an extern function, it takes three steps.
 Each operator reads a pattern of bytes from the tape to accomplish its job. All extern operators start with a percent sign `%`.
 
@@ -602,7 +602,7 @@ Memory layout relative to the cursor:
 ```
 
 #### Step 2: Create the caller
-The **Create Extern Caller** operator is a percent sign and a ampersand `%&`. Extern callers are stored by **ID** (see above). This operator reads an **ID** from the tape and scans for a null-terminated sequence of type indices. For reference on index to type mapping, see the [Table of Types](#table-of-types). The **ID** read is where the caller will be stored.
+The **Create Extern Caller** operator is a percent sign and an ampersand `%&`. Extern callers are stored by **ID** (see above). This operator reads an **ID** from the tape and scans for a null-terminated sequence of type indices. For reference on index to type mapping, see the [Table of Types](#table-of-types). The **ID** read is where the caller will be stored.
 Arguments are optional, but a return type is required. Type void is not permitted as an argument type.
 Memory layout relative to the cursor:
 ```
@@ -623,7 +623,7 @@ Memory layout relative to the cursor:
 The **Call Extern Function** operator reads a caller **ID**, function pointer, return address and argument addresses from the tape. This operator doesn't directly write to the tape, but if the function returns non-void, then the returned value will be written to the provided return address.\
 Memory layout relative to the cursor:
 ```
-|0        |1 |...|8 |9 |...|18 |19 |...|n |
+|0        |1 |...|8 |9 |...|16 |17 |...|n |
 |Caller ID|Func Addr|Ret Addr  |Arg Addrs |
 ```
 `*` is useful for getting addresses of cells on the tape to use as the return address and arg addresses. Be warned, the return and arg addresses need to be aligned for the types they are. \
@@ -634,9 +634,9 @@ Example without args because it's shorter to show (with `glfwInit`)
 &caller_id(...) # writes 1 cell caller id
 
 $caller_id # write caller id to cell 0
-> &glfwInit_addr # write function pointer to cells 1-8
+> $glfwInit_addr # write function pointer to cells 1-8
 >31 * <32 # take a reference to cell 32
-@0 &move_8_from_to ({32$0}) ({9$0}) # move address of cell 32 to cells 9-18
+@0 $move_8_from_to ({32$0}) ({9$0}) # move address of cell 32 to cells 9-16
 
 %$ # call the function
 >32 # go to where the return was written
@@ -655,8 +655,8 @@ While calling external functions is very useful on its own, sometimes custom fun
 
 Code inside of a function uses a different **Context** from the main program, meaning it has an independent cursor position and "last time called" for wait operators. It still shares the same memory tape and **ID** values.
 
-The **Define Function** operator is an ampersand and asterisk follwed by a **name**, tilde, and return type id `&*name~n`.
-Optionally after that can come another tilde then a comma-separated list of type indices for parameter `&*name~n~n,n`. Parameters or not, a set of brackets comes last to define the function body.
+The **Define Function** operator is an ampersand and asterisk followed by a **name**, tilde, and return type index `&*name~n`.
+Optionally after that can come another tilde then a comma-separated list of type indices for parameters `&*name~n~n,n`. Parameters or not, a set of brackets comes last to define the function body.
 
 Functions use the same systems of **names**, **scopes**, **exporting**, and **backtracking** as macros.
 
@@ -686,7 +686,7 @@ $$*bar
 # the same Export Name operator works.
 &$foo
 ```
-Functions cannot be defined within other functions. There is no in-built way to directly call a function with an arbitary signature, so the extern call operators must be used (`%&` and `%$`).
+Functions cannot be defined within other functions. There is no in-built way to directly call a function with an arbitrary signature, so the extern call operators must be used (`%&` and `%$`).
 
 ### Associated Operators
 
@@ -735,7 +735,7 @@ $! # returns out of the program with exit code 0
 |&&\*name~*r*( )| | Defines and exports a function with no args
 |&&\*name~*r*~*a*,*a*( )| | Defines and exports a function with args
 |$*name|$$*name| Gets the address of a function
-|$*n*|| Gets the address of a function argument
+|$\**n*|| Gets the address of a function argument
 |$!|| Returns from a function with the value at the tape cursor
 |&$name|&$$name|Finds and exports an existing function
 
@@ -745,9 +745,9 @@ Multithreading exists as a language feature of Brainfuck++ because why not at th
 Threads can be created and stored by **ID** by the program. 
 Functions defined with the signature `void(cell)` can be called directly by the **Spawn Thread** operator.
 
-The **Spawn Thread** operator is a caret, a dollar sign, and a **name** `^$name`. It reads an **ID** from the tape saves a new thread to that **ID**. The function being called will be passed the thread's **ID** as an argument.
+The **Spawn Thread** operator is a caret, a dollar sign, and a **name** `^$name`. It reads an **ID** from the tape and saves a new thread to that **ID**. The function being called will be passed the thread's **ID** as an argument.
 
-The **Join Thread** operator is a caret and an exclaimation mard `^!`. It reads a thread **ID** from the tape and waits for that thread to end execution. If the thread of that **ID** already ended then this operator does nothing.
+The **Join Thread** operator is a caret and an exclamation mark `^!`. It reads a thread **ID** from the tape and waits for that thread to end execution. If the thread of that **ID** already ended then this operator does nothing.
 
 ```bfpp
 &&*foo~1~20 (
@@ -828,7 +828,7 @@ The **Mutex Block** operator is a caret before a pair of curly brackets `^{ }`. 
 |15|c ulong
 |16|c long
 |17|c long double
-|18|size
+|18|isize
 |19|usize
 |20|cell
 
